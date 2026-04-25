@@ -1,0 +1,47 @@
+\babel@toc {english}{}\relax 
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {section}{\numberline {2}Dataset}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}UAV Sugarcane Segmentation}{2}{subsection.2.1}%
+\contentsline {paragraph}{Preprocessing.}{2}{section*.2}%
+\contentsline {paragraph}{Class imbalance.}{2}{section*.3}%
+\contentsline {paragraph}{Splits and augmentation.}{3}{section*.4}%
+\contentsline {section}{\numberline {3}Backbone Architecture}{3}{section.3}%
+\contentsline {subsection}{\numberline {3.1}DeepFCN}{3}{subsection.3.1}%
+\contentsline {section}{\numberline {4}Segmentation Heads}{3}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Euclidean (Baseline)}{3}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Hyperbolic (Ganea / Atigh Baseline)}{3}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Pontryagin (This Work)}{3}{subsection.4.3}%
+\contentsline {paragraph}{Motivation.}{3}{section*.5}%
+\contentsline {paragraph}{Random feature construction.}{4}{section*.6}%
+\contentsline {subparagraph}{Positive component — RFF.}{4}{section*.7}%
+\contentsline {subparagraph}{Negative component — SRF.}{4}{section*.8}%
+\contentsline {subparagraph}{Concatenation.}{4}{section*.9}%
+\contentsline {paragraph}{J-hyperplane classification.}{4}{section*.10}%
+\contentsline {section}{\numberline {5}Loss Function}{4}{section.5}%
+\contentsline {paragraph}{Cross-entropy.}{5}{section*.11}%
+\contentsline {paragraph}{Cone penalty on weights $\mathcal {L}_{\text {cone-W}}$.}{5}{section*.12}%
+\contentsline {paragraph}{Topographic penalty $\mathcal {L}_{\text {topo}}$.}{5}{section*.13}%
+\contentsline {paragraph}{Balance penalty $\mathcal {L}_{\text {balance}}$.}{5}{section*.14}%
+\contentsline {section}{\numberline {6}Training Protocol}{5}{section.6}%
+\contentsline {paragraph}{Optimiser.}{5}{section*.15}%
+\contentsline {paragraph}{Scheduler.}{5}{section*.16}%
+\contentsline {paragraph}{Early stopping.}{5}{section*.17}%
+\contentsline {paragraph}{Batch size.}{5}{section*.18}%
+\contentsline {paragraph}{Hardware.}{5}{section*.19}%
+\contentsline {section}{\numberline {7}Hyperparameter Optimisation}{5}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Common to all models}{6}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Hyperbolic-specific}{6}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Pontryagin-specific}{6}{subsection.7.3}%
+\contentsline {section}{\numberline {8}Evaluation Metrics}{6}{section.8}%
+\contentsline {paragraph}{Per-class metrics.}{6}{section*.20}%
+\contentsline {paragraph}{Global metrics.}{6}{section*.21}%
+\contentsline {section}{\numberline {9}Interpretability: SegScoreCAM}{7}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Motivation}{7}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}SegScoreCAM}{7}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Interpretability Metrics}{7}{subsection.9.3}%
+\contentsline {subsection}{\numberline {9.4}Interpretability Results}{7}{subsection.9.4}%
+\contentsline {section}{\numberline {10}Discussion}{8}{section.10}%
+\contentsline {paragraph}{Pontryagin vs Euclidean.}{8}{section*.23}%
+\contentsline {paragraph}{Signature and degree.}{8}{section*.24}%
+\contentsline {paragraph}{Interpretability.}{8}{section*.25}%
+\contentsline {section}{\numberline {11}Conclusion}{8}{section.11}%

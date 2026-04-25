@@ -1,0 +1,72 @@
+\relax 
+\providecommand\babel@aux[2]{}
+\@nameuse{bbl@beforestart}
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\babel@aux{english}{}
+\citation{ganea2018}
+\citation{atigh2022}
+\citation{rahimi2007}
+\citation{pennington2015}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{2}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Dataset}{2}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}UAV Sugarcane Segmentation}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Preprocessing.}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Class imbalance.}{2}{section*.3}\protected@file@percent }
+\citation{ganea2018}
+\citation{atigh2022}
+\@writefile{toc}{\contentsline {paragraph}{Splits and augmentation.}{3}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Backbone Architecture}{3}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}DeepFCN}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Segmentation Heads}{3}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Euclidean (Baseline)}{3}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Hyperbolic (Ganea / Atigh Baseline)}{3}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Pontryagin (This Work)}{3}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Motivation.}{3}{section*.5}\protected@file@percent }
+\citation{rahimi2007}
+\citation{pennington2015}
+\@writefile{toc}{\contentsline {paragraph}{Random feature construction.}{4}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subparagraph}{Positive component — RFF.}{4}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subparagraph}{Negative component — SRF.}{4}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subparagraph}{Concatenation.}{4}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{J-hyperplane classification.}{4}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Loss Function}{4}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Cross-entropy.}{5}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Cone penalty on weights $\mathcal  {L}_{\text  {cone-W}}$.}{5}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Topographic penalty $\mathcal  {L}_{\text  {topo}}$.}{5}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Balance penalty $\mathcal  {L}_{\text  {balance}}$.}{5}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Training Protocol}{5}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Optimiser.}{5}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scheduler.}{5}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Early stopping.}{5}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Batch size.}{5}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Hardware.}{5}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Hyperparameter Optimisation}{5}{section.7}\protected@file@percent }
+\citation{scorecam2020}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Common to all models}{6}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Hyperbolic-specific}{6}{subsection.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Pontryagin-specific}{6}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Evaluation Metrics}{6}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Per-class metrics.}{6}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Global metrics.}{6}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Interpretability: SegScoreCAM}{7}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Motivation}{7}{subsection.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.2}SegScoreCAM}{7}{subsection.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.3}Interpretability Metrics}{7}{subsection.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.4}Interpretability Results}{7}{subsection.9.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces SegScoreCAM metrics on the test split (mean $\pm $ std). GT IoU and GT Recall are higher-is-better; Mean Activation is lower-is-better (a smaller value indicates a more focused, less diffuse heatmap).}}{7}{table.caption.22}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{tab:cam}{{1}{7}{SegScoreCAM metrics on the test split (mean $\pm $ std). GT IoU and GT Recall are higher-is-better; Mean Activation is lower-is-better (a smaller value indicates a more focused, less diffuse heatmap)}{table.caption.22}{}}
+\bibstyle{plain}
+\bibcite{rahimi2007}{1}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Discussion}{8}{section.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Pontryagin vs Euclidean.}{8}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Signature and degree.}{8}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Interpretability.}{8}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Conclusion}{8}{section.11}\protected@file@percent }
+\bibcite{pennington2015}{2}
+\bibcite{ganea2018}{3}
+\bibcite{atigh2022}{4}
+\bibcite{scorecam2020}{5}
+\gdef \@abspage@last{9}
