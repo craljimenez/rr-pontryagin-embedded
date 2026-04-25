@@ -252,7 +252,7 @@ def load_best_model(model_type: str, results_dir=None):
             params = json.load(f)
 
     model = build_model(model_type, params)
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     return model, params

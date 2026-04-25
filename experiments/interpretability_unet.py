@@ -63,7 +63,7 @@ def load_unet_model(model_type: str, results_dir=None):
         with open(params_path) as f:
             params = json.load(f)
     model = build_unet_model(model_type, params)
-    ckpt  = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    ckpt  = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     return model, params
@@ -110,8 +110,9 @@ class SegScoreCAM:
                 score = torch.softmax(out, dim=1)[:, class_idx].mean().item()
             scores.append(score)
 
-        scores_t = torch.tensor(scores, dtype=torch.float32)
-        weights  = F.softmax(scores_t, dim=0)         # (C,)
+        scores_t = torch.tensor(scores, dtype=torch.float32,
+                                device=feature_maps.device)
+        weights  = F.softmax(scores_t, dim=0)         # (C,) same device as feature_maps
 
         cam = (feature_maps[0] * weights[:, None, None]).sum(dim=0)  # (H', W')
         cam = F.relu(cam)

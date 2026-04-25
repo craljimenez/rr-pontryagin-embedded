@@ -559,7 +559,11 @@ def save_validation_grid(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
-    print(f"  → visualisation saved: {out_path.relative_to(RESULTS_DIR)}")
+    try:
+        label = out_path.relative_to(RESULTS_DIR)
+    except ValueError:
+        label = out_path
+    print(f"  → visualisation saved: {label}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -740,7 +744,7 @@ def train_one_model(
     # ── test evaluation with best checkpoint ──────────────────────────────────
     if verbose:
         print("\nLoading best model for test evaluation …")
-    ckpt = torch.load(model_path, map_location=device)
+    ckpt = torch.load(model_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     test_metrics = evaluate(model, data["test_dl"], device)
     if verbose:

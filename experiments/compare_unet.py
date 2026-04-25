@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from configs.seg_uav_unet import AVAILABLE_MODELS, RESULTS_DIR
+from configs.seg_uav_unet import AVAILABLE_MODELS, RESULTS_DIR as _DEFAULT_RESULTS_DIR
 
 COLOURS = ["#4C72B0", "#DD8452", "#55A868", "#C44E52"]
 
@@ -43,10 +43,10 @@ SEG_LABELS  = {
 }
 
 
-def load_seg_metrics():
+def load_seg_metrics(results_dir):
     rows = []
     for mt in AVAILABLE_MODELS:
-        path = RESULTS_DIR / mt / "metrics.json"
+        path = results_dir / mt / "metrics.json"
         if not path.exists():
             print(f"  [skip] {mt}: no metrics.json")
             continue
@@ -74,10 +74,10 @@ CAM_LABELS  = {
 CAM_LOWER_IS_BETTER = {"mean_activation"}
 
 
-def load_cam_metrics():
+def load_cam_metrics(results_dir):
     rows = []
     for mt in AVAILABLE_MODELS:
-        path = RESULTS_DIR / mt / "gradcam" / "metrics.json"
+        path = results_dir / mt / "gradcam" / "metrics.json"
         if not path.exists():
             print(f"  [skip] {mt}: no gradcam/metrics.json")
             continue
@@ -135,13 +135,19 @@ def _bar_chart(means: pd.DataFrame, metrics: list, labels: dict,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--results-dir", type=str, default=None,
+                    help="Output directory for results (overrides config).")
+    args = ap.parse_args()
+    results_dir = Path(args.results_dir) if args.results_dir else _DEFAULT_RESULTS_DIR
+    results_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Segmentation ─────────────────────────────────────────────────────────
     print("=== Segmentation metrics ===")
-    seg_df = load_seg_metrics()
+    seg_df = load_seg_metrics(results_dir)
     if not seg_df.empty:
-        seg_df.to_csv(RESULTS_DIR / "seg_comparison.csv", index=False)
+        seg_df.to_csv(results_dir / "seg_comparison.csv", index=False)
         print(seg_df.set_index("model")[SEG_METRICS].round(4).to_string())
         print()
 
@@ -153,13 +159,13 @@ def main():
 
         _bar_chart(seg_means, SEG_METRICS, SEG_LABELS,
                    "UNet segmentation comparison",
-                   RESULTS_DIR / "seg_comparison.pdf")
+                   results_dir / "seg_comparison.pdf")
 
     # ── Interpretability ─────────────────────────────────────────────────────
     print("\n=== SegScoreCAM interpretability metrics ===")
-    cam_df = load_cam_metrics()
+    cam_df = load_cam_metrics(results_dir)
     if not cam_df.empty:
-        cam_df.to_csv(RESULTS_DIR / "gradcam_comparison.csv", index=False)
+        cam_df.to_csv(results_dir / "gradcam_comparison.csv", index=False)
 
         agg = cam_df.groupby("model")[CAM_METRICS].agg(["mean", "std"]).round(4)
         print(agg.to_string())
@@ -178,7 +184,7 @@ def main():
 
         _bar_chart(cam_means, CAM_METRICS, CAM_LABELS,
                    "UNet SegScoreCAM interpretability comparison",
-                   RESULTS_DIR / "gradcam_comparison.pdf")
+                   results_dir / "gradcam_comparison.pdf")
 
 
 if __name__ == "__main__":

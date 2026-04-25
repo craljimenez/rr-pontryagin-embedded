@@ -24,7 +24,7 @@ import pandas as pd
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
-from configs.seg_uav import AVAILABLE_MODELS, RESULTS_DIR
+from configs.seg_uav import AVAILABLE_MODELS, RESULTS_DIR as _DEFAULT_RESULTS_DIR
 
 METRICS = [
     "gt_iou", "gt_recall", "gt_precision", "gt_pearson",
@@ -42,8 +42,8 @@ LABELS = {
 LOWER_IS_BETTER = {"mean_activation"}
 
 
-def load_metrics(model_type: str) -> pd.DataFrame:
-    path = RESULTS_DIR / model_type / "gradcam" / "metrics.json"
+def load_metrics(model_type: str, results_dir: Path) -> pd.DataFrame:
+    path = results_dir / model_type / "gradcam" / "metrics.json"
     if not path.exists():
         raise FileNotFoundError(f"metrics.json not found for {model_type}: {path}")
     with open(path) as f:
@@ -67,10 +67,17 @@ def load_metrics(model_type: str) -> pd.DataFrame:
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--results-dir", type=str, default=None,
+                    help="Output directory for results (overrides config).")
+    args = ap.parse_args()
+    results_dir = Path(args.results_dir) if args.results_dir else _DEFAULT_RESULTS_DIR
+
     frames = []
     for model_type in AVAILABLE_MODELS:
         try:
-            frames.append(load_metrics(model_type))
+            frames.append(load_metrics(model_type, results_dir))
         except FileNotFoundError as exc:
             print(f"Warning: {exc}")
 
@@ -81,7 +88,7 @@ def main():
     df = pd.concat(frames, ignore_index=True)
 
     # --- per-image CSV ---
-    csv_path = RESULTS_DIR / "gradcam_comparison.csv"
+    csv_path = results_dir / "gradcam_comparison.csv"
     df.to_csv(csv_path, index=False)
     print(f"Saved per-image table → {csv_path}\n")
 
@@ -140,7 +147,7 @@ def main():
     ax.set_ylim(bottom=0)
     plt.tight_layout()
 
-    pdf_path = RESULTS_DIR / "gradcam_comparison.pdf"
+    pdf_path = results_dir / "gradcam_comparison.pdf"
     fig.savefig(pdf_path, dpi=150, format="pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved bar chart → {pdf_path}")

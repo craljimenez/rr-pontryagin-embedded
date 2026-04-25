@@ -422,7 +422,7 @@ def train_one_model(
         print(f"  Training time: {elapsed:.0f}s")
 
     # ── Test evaluation ──────────────────────────────────────────────────────
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     test_m = evaluate(model, data["test_dl"], device)
 

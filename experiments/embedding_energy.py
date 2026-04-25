@@ -55,7 +55,7 @@ def _load_model(results_dir=None):
         with open(params_path) as f:
             params = json.load(f)
     model = build_model(MODEL_TYPE, params)
-    ckpt  = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    ckpt  = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     return model
