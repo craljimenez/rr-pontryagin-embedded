@@ -41,7 +41,7 @@ HYPERBOLIC_C = 1.0
 
 # ── training ──────────────────────────────────────────────────────────────────
 DEVICE               = "cuda"
-BATCH_SIZE           = 2
+BATCH_SIZE           = 8
 NUM_WORKERS          = 4
 EPOCHS               = 60
 LR                   = 1e-3
