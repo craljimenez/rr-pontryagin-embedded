@@ -13,7 +13,7 @@ DATASET_ROOT = Path(__file__).parents[3] / "002_rff_ss" / "DATASETS" / "UAV_segm
 RESULTS_DIR  = Path(__file__).parents[1] / "results" / "seg_uav"
 
 # ── dataset ───────────────────────────────────────────────────────────────────
-IMG_SIZE    = 512
+IMG_SIZE    = 256
 BINARY_SUGARCANE = True      # collapse the problem to sugarcane vs background
 BINARY_ONLY_SUGARCANE = True # drop images without sugarcane from the dataset
 N_CLASSES   = 2              # 0=background, 1=Sugarcane
