@@ -131,8 +131,11 @@ def main():
         verbose=False,
     )
 
-    best_params = {dim.name: val for dim, val in zip(space, result.x)}
-    best_iou    = -result.fun
+    best_params = {
+        dim.name: int(val) if isinstance(dim, Integer) else float(val)
+        for dim, val in zip(space, result.x)
+    }
+    best_iou = float(-result.fun)
 
     print(f"\n{'='*60}")
     print(f"Best val mIoU: {best_iou:.4f}")

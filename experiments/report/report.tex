@@ -103,7 +103,7 @@ segmentation}: each label file contains class index and normalised polygon
 vertices per instance.
 
 \paragraph{Preprocessing.}
-All images are resized to $512 \times 512$ pixels using bilinear
+All images are resized to $256 \times 256$ pixels using bilinear
 interpolation.  Polygon masks are rasterised at the same resolution.
 To focus on a single, well-defined binary problem, the dataset is filtered
 to \textbf{binary sugarcane segmentation}: class~0 = background, class~1 =
@@ -118,16 +118,26 @@ $w_{\text{bg}} = 0.20$ and $w_{\text{sc}} = 1.00$.
 
 \paragraph{Splits and augmentation.}
 The dataset is split into train / validation / test partitions provided by
-the source repository.  During training, random horizontal and vertical flips
-(each with probability 0.5) are applied.
+the source repository, containing 81 / 30 / 20 images respectively (before
+binary filtering).  After discarding images without sugarcane, the effective
+splits used in training are 49 train / 23 validation / 13 test images.
+During training, random horizontal and vertical flips (each with probability
+0.5) are applied.
 
 % =============================================================================
-\section{Backbone Architecture}
+\section{Backbone Architectures}
 % =============================================================================
+
+Two backbone architectures are evaluated: a lightweight deep FCN for rapid
+ablation and a full U-Net for competitive benchmarking.  All segmentation
+heads (Euclidean, Hyperbolic, Pontryagin) are compatible with both backbones;
+the U-Net experiments additionally include a Vanilla baseline that trains
+without class-weighted loss.
 
 \subsection{DeepFCN}
+\label{sec:deepfcn}
 
-All three segmentation heads share a \textbf{deep fully-convolutional network
+All FCN segmentation heads share a \textbf{deep fully-convolutional network
 (DeepFCN)} backbone with configurable depth $D \in \{3,4,5\}$.  Each stage
 consists of two $3\times3$ strided convolutions (stride 2) with batch
 normalisation and ReLU activation.  Channel widths follow the schedule
@@ -141,9 +151,57 @@ $H' = H / 2^D$.  This map is then processed by the segmentation head, and
 the resulting low-resolution logits are bilinearly upsampled to the original
 resolution before computing the loss.
 
+\subsection{U-Net Backbone}
+\label{sec:unet}
+
+The U-Net backbone (Ronneberger et al., 2015) is an encoder-decoder
+architecture that preserves full spatial resolution through skip connections,
+avoiding the upsampling artefacts common in FCN-style designs.
+
+\paragraph{Encoder.}
+$D$ double-conv blocks (two $3\times3$ convolutions, each followed by batch
+normalisation and ReLU), each followed by $2\times2$ max-pooling.  The
+channel schedule is $C_k = C_{\text{base}} \cdot \min(2^k, 8)$ for stage
+$k = 0,\ldots,D-1$, where $C_{\text{base}} = 64$ by default.  For $D = 4$
+this gives $64 \to 128 \to 256 \to 512$.
+
+\paragraph{Bottleneck.}
+A single double-conv block at the lowest resolution:
+$C_{D-1} \to C_D = C_{\text{base}} \cdot \min(2^D, 8)$
+(e.g.\ $512 \to 1024$ for $D = 4$).
+
+\paragraph{Decoder.}
+$D$ upsampling stages, each performing bilinear upsampling followed by
+skip-connection concatenation with the matching encoder output, and then a
+double-conv block.  The output is projected to $C_{\text{out}} = 64$
+channels by a $1 \times 1$ convolution.
+
+The backbone produces $\mathbf{f} \in \R^{64 \times H \times W}$ — at the
+\emph{same} spatial resolution as the input, so no further upsampling is
+needed.  The depth $D \in \{3,4,5\}$ is a hyperparameter optimised in the
+HPO phase.
+
 % =============================================================================
 \section{Segmentation Heads}
 % =============================================================================
+
+The same four heads are used with both backbones.  The Vanilla head is a
+pure CE baseline without class weighting; it is included in the U-Net
+experiments to provide an upper bound untouched by any geometric inductive
+bias.
+
+\subsection{Vanilla (U-Net baseline only)}\label{sec:vanilla}
+
+The Vanilla head applies a $1\times1$ convolution to the backbone features
+and minimises the standard (unweighted) cross-entropy loss:
+\[
+  \mathcal{L}_{\text{vanilla}}
+  = -\frac{1}{N}\sum_{n=1}^{N}\log\frac{e^{(\mathbf{W}_{\text{cls}}\mathbf{f}_n)_{y_n}}}
+    {\sum_c e^{(\mathbf{W}_{\text{cls}}\mathbf{f}_n)_c}}.
+\]
+No class-weight correction is applied.  This model is the strongest
+``geometry-free'' reference: any improvement from the geometric heads must
+overcome a baseline that is otherwise identical.
 
 \subsection{Euclidean (Baseline)}
 
@@ -258,10 +316,24 @@ weight vector $\mathbf{W}_y \in \R^{p+\kap}$:
 The Pontryagin head minimises a composite loss:
 \[
   \mathcal{L} = \mathcal{L}_{\text{CE}}
-              + \lambda_W\,   \mathcal{L}_{\text{cone-W}}
               + \lambda_{\text{topo}}\, \mathcal{L}_{\text{topo}}
               + \lambda_{\text{bal}}\,  \mathcal{L}_{\text{balance}}.
 \]
+
+\begin{remark}[Cone penalty disabled]
+An earlier version of the loss included a cone penalty on the classifier
+weight vectors:
+\[
+  \mathcal{L}_{\text{cone-W}}
+  = \frac{1}{C}\sum_{y=1}^C
+    \mathrm{ReLU}\!\left(\varepsilon - \bigl|\mathbf{W}_y^\top J\, \mathbf{W}_y\bigr|\right).
+\]
+Empirically, this term suppresses the negative subspace by keeping all
+weight vectors strictly timelike, which defeats the purpose of the
+indefinite metric.  It has therefore been removed from the active loss
+($\lambda_W = 0$); the balance penalty described below serves instead to
+maintain gradient flow in the negative dimensions.
+\end{remark}
 
 \paragraph{Cross-entropy.}
 \[
@@ -269,57 +341,56 @@ The Pontryagin head minimises a composite loss:
   -\frac{1}{N}\sum_{n=1}^N \log \frac{e^{\zeta_{y_n}(\mathbf{z}_n)}}
                                      {\sum_c e^{\zeta_c(\mathbf{z}_n)}},
 \]
-weighted by class frequencies.
-
-\paragraph{Cone penalty on weights $\mathcal{L}_{\text{cone-W}}$.}
-Weight vectors that lie on the \emph{null cone} $\{u : \Jprod{u}{u} = 0\}$
-produce degenerate classifiers (the J-hyperplane has no definite normal).
-The penalty keeps them away from the cone:
-\[
-  \mathcal{L}_{\text{cone-W}}
-  = \frac{1}{C}\sum_{y=1}^C
-    \mathrm{ReLU}\!\left(\varepsilon - \bigl|\mathbf{W}_y^\top J\, \mathbf{W}_y\bigr|\right),
-  \quad \varepsilon = 0.1.
-\]
+weighted by class frequencies ($w_{\text{bg}}=0.20$, $w_{\text{sc}}=1.00$).
 
 \paragraph{Topographic penalty $\mathcal{L}_{\text{topo}}$.}
 The \texttt{IndefiniteTopographicPenalty} combines three terms on the
 embedding $\mathbf{z}$:
 \begin{itemize}[noitemsep]
-  \item \emph{Light-cone (LC):} penalises embeddings near the null cone.
+  \item \emph{Light-cone (LC):} penalises embeddings near the null cone
+        $\{\mathbf{z} : \Jprod{\mathbf{z}}{\mathbf{z}} = 0\}$.
   \item \emph{Causal consistency (CC):} encourages same-class embeddings to
         share the same causal character (timelike or spacelike).
   \item \emph{Signature balance (SB):} keeps the norms of the positive and
         negative subcomponents similar.
 \end{itemize}
+Weights $(\lambda_{\text{lc}}, \lambda_{\text{cc}}, \lambda_{\text{sb}}) =
+(1.0,\, 0.5,\, 0.5)$ are held fixed; $\lambda_{\text{topo}}$ scales the
+whole term and is searched during HPO.
 
 \paragraph{Balance penalty $\mathcal{L}_{\text{balance}}$.}
 \[
   \mathcal{L}_{\text{balance}}
-  = \mathrm{ReLU}\!\left(\|\mathbf{z}_-\|_2 - \|\mathbf{z}_+\|_2\right),
+  = \bigl(\mathrm{rms}(\mathbf{W}_+) - \mathrm{rms}(\mathbf{W}_-)\bigr)^2,
 \]
-where $\mathbf{z}_+$ and $\mathbf{z}_-$ are the positive and negative
-subspace components.  This prevents the negative subspace from dominating
-the representation.
+where $\mathbf{W}_+$ and $\mathbf{W}_-$ are the positive- and
+negative-subspace columns of the classifier weight matrix, and
+$\mathrm{rms}(\cdot)$ denotes the root mean square.  This penalty encourages
+the two subspaces to carry equal energy in the weight vectors, ensuring that
+neither the positive (RFF) nor the negative (SRF) subspace dominates
+gradient flow during training.
 
 % =============================================================================
 \section{Training Protocol}
 % =============================================================================
 
-\paragraph{Optimiser.}  Adam with learning rate $\eta = 10^{-3}$ and weight
-decay $10^{-4}$.
+Both experiment tracks (FCN and U-Net) share the same protocol.
 
-\paragraph{Scheduler.}  Cosine annealing from $\eta$ to $\eta_{\min} = 10^{-5}$
-over $E_{\max} = 60$ epochs.
+\paragraph{Optimiser.}  Adam with learning rate $\eta = 10^{-3}$ and weight
+decay $10^{-4}$ (default values, overridden by the HPO best parameters when
+available).
+
+\paragraph{Scheduler.}  Cosine annealing from $\eta$ to
+$\eta_{\min} = 10^{-5}$ over $E_{\max} = 60$ epochs.
 
 \paragraph{Early stopping.}  Training halts if the validation \emph{macro
 mIoU} (averaged over non-empty classes) does not improve for 15 consecutive
-epochs.  The checkpoint with the highest validation macro mIoU is kept.
+epochs.  The checkpoint with the highest validation macro mIoU is restored
+for test evaluation.
 
-\paragraph{Batch size.}  2 images per GPU step (limited by the $512^2$
-resolution and GPU memory).
+\paragraph{Batch size.}  8 images per GPU step at $256\times256$ resolution.
 
-\paragraph{Hardware.}  Single CUDA GPU.
+\paragraph{Hardware.}  Single NVIDIA A100-SXM4 (80 GB) GPU on Google Colab.
 
 % =============================================================================
 \section{Hyperparameter Optimisation}
@@ -327,58 +398,53 @@ resolution and GPU memory).
 
 Bayesian HPO is carried out with \texttt{scikit-optimize}'s
 \texttt{forest\_minimize} (Extra Trees surrogate, 30 trials, 10 random
-starts).  Each trial trains for 12 epochs with early stopping at patience 6.
-The search spaces are model-specific.
+starts).  Each trial trains for 15 epochs (FCN) or 12 epochs (U-Net).
+The search spaces differ between the two backbones only in the
+architecture-depth parameter; all other parameters are shared.
 
-\subsection{Common to all models}
-\begin{center}
-\begin{tabular}{lll}
-\toprule
-Parameter & Range & Prior \\
-\midrule
-\texttt{lr}           & $[10^{-5},\; 10^{-2}]$ & log-uniform \\
-\texttt{weight\_decay}& $[10^{-6},\; 10^{-3}]$ & log-uniform \\
-\texttt{backbone\_depth} & $\{3, 4, 5\}$        & uniform \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Hyperbolic-specific}
-\begin{center}
-\begin{tabular}{lll}
-\toprule
-Parameter & Range & Prior \\
-\midrule
-\texttt{hyperbolic\_c} & $[0.1,\; 2.0]$ & log-uniform \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Pontryagin-specific}
+\subsection{FCN experiments}
+\label{sec:hpo_fcn}
 
 \begin{center}
 \begin{tabular}{llll}
 \toprule
-Parameter & Range & Prior & Interpretation \\
+Parameter & Range & Prior & Applies to \\
 \midrule
-$\kap$ (\texttt{kappa})
-  & $\{1,\ldots,64\}$ & log-uniform
-  & Pontryagin signature $=n_{\text{srf}}$ \\
-$\dpoly$ (\texttt{d\_poly})
-  & $\{1,\ldots,10\}$ & uniform
-  & SRF polynomial degree \\
-\texttt{rff\_multiplier}
-  & $\{1,2,3,4\}$ & uniform
-  & $n_{\text{rff}} = m \cdot C_{\text{out}}$ \\
-$\lambda_W$
-  & $[10^{-6},\; 0.5]$ & log-uniform
-  & cone penalty weight \\
-$\lambda_{\text{topo}}$
-  & $[10^{-6},\; 0.2]$ & log-uniform
-  & topographic penalty weight \\
-$\lambda_{\text{bal}}$
-  & $[10^{-6},\; 0.1]$ & log-uniform
-  & balance penalty weight \\
+\texttt{lr}              & $[10^{-5},\; 10^{-2}]$ & log-uniform & all \\
+\texttt{weight\_decay}   & $[10^{-6},\; 10^{-3}]$ & log-uniform & all \\
+\texttt{backbone\_depth} & $\{3, 4, 5\}$           & uniform     & all \\
+\texttt{hyperbolic\_c}   & $[0.1,\; 2.0]$          & log-uniform & hyperbolic \\
+$\kap$                   & $\{1,\ldots,64\}$       & log-uniform & pontryagin \\
+$\dpoly$                 & $\{1,\ldots,10\}$       & uniform     & pontryagin \\
+\texttt{rff\_multiplier} & $\{1,2,3,4\}$           & uniform     & pontryagin \\
+$\lambda_{\text{topo}}$  & $[10^{-6},\; 0.2]$      & log-uniform & pontryagin \\
+$\lambda_{\text{bal}}$   & $[10^{-3},\; 1.0]$      & log-uniform & pontryagin \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{U-Net experiments}
+\label{sec:hpo_unet}
+
+The U-Net HPO space is identical to the FCN one with a single change:
+\texttt{backbone\_depth} is replaced by \texttt{unet\_depth}, which
+controls the number of encoder/decoder stages of the U-Net backbone
+(Section~\ref{sec:unet}).
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Parameter & Range & Prior & Applies to \\
+\midrule
+\texttt{lr}              & $[10^{-5},\; 10^{-2}]$ & log-uniform & all \\
+\texttt{weight\_decay}   & $[10^{-6},\; 10^{-3}]$ & log-uniform & all \\
+\texttt{unet\_depth}     & $\{3, 4, 5\}$           & uniform     & all \\
+\texttt{hyperbolic\_c}   & $[0.1,\; 2.0]$          & log-uniform & hyperbolic \\
+$\kap$                   & $\{1,\ldots,64\}$       & log-uniform & pontryagin \\
+$\dpoly$                 & $\{1,\ldots,10\}$       & uniform     & pontryagin \\
+\texttt{rff\_multiplier} & $\{1,2,3,4\}$           & uniform     & pontryagin \\
+$\lambda_{\text{topo}}$  & $[10^{-6},\; 0.2]$      & log-uniform & pontryagin \\
+$\lambda_{\text{bal}}$   & $[10^{-3},\; 1.0]$      & log-uniform & pontryagin \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -386,26 +452,23 @@ $\lambda_{\text{bal}}$
 \paragraph{Design rationale for $\kap$.}
 The signature $\kap$ determines how many negative dimensions exist in $J$ and
 simultaneously the number of SRF output components.  A log-uniform prior over
-$\{1,\ldots,64\}$ ensures that small values ($\kap \in \{1,\ldots,8\}$, where
-the indefinite component is modest) receive the same sampling probability as
-large values ($\kap \geq 32$, where the negative subspace is dominant).  A
-uniform prior over this range would bias exploration towards large $\kap$,
-which is undesirable given that the interaction between the subspace size and
-the polynomial degree is not yet characterised.
+$\{1,\ldots,64\}$ ensures that small values ($\kap \leq 8$, where the
+indefinite component is modest) receive the same sampling probability as large
+values ($\kap \geq 32$, where the negative subspace is dominant).
 
 \paragraph{Decoupling $\kap$ and $\dpoly$.}
 In earlier implementations, $\kap$ controlled both the number of SRF
 components and the polynomial degree of $K_-$, conflating three distinct
-design choices simultaneously.  The current implementation separates them:
-$\kap = n_{\text{srf}}$ is the signature, and $\dpoly$ is the degree of
-$K_-(\mathbf{x},\mathbf{y}) = (\mathbf{x}^\top\mathbf{y})^{\dpoly}$, searched
-independently.
+design choices.  The current implementation separates them:
+$\kap = n_{\text{srf}}$ sets the signature, while $\dpoly$ sets the degree
+of $K_-(\mathbf{x},\mathbf{y}) = (\mathbf{x}^\top\mathbf{y})^{\dpoly}$,
+searched independently.
 
 \paragraph{Gradient-tuned parameters.}
 The RFF bandwidth $\sigma$ is \emph{not} part of the HPO space.  It is
-reparametrised as $\sigma = \exp(\log\sigma)$ and updated by gradient descent,
-with the stored unit-variance frequencies $\omega_i \sim \mathcal{N}(0,I)$
-scaled by $1/\sigma$ at each forward pass.
+reparametrised as $\sigma = \exp(\log\sigma)$ and updated by gradient
+descent, with unit-variance frequencies $\omega_i \sim \mathcal{N}(0,I)$
+rescaled by $1/\sigma$ at each forward pass.
 
 % =============================================================================
 \section{Evaluation Metrics}

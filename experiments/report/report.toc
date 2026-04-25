@@ -5,43 +5,52 @@
 \contentsline {paragraph}{Preprocessing.}{2}{section*.2}%
 \contentsline {paragraph}{Class imbalance.}{2}{section*.3}%
 \contentsline {paragraph}{Splits and augmentation.}{3}{section*.4}%
-\contentsline {section}{\numberline {3}Backbone Architecture}{3}{section.3}%
+\contentsline {section}{\numberline {3}Backbone Architectures}{3}{section.3}%
 \contentsline {subsection}{\numberline {3.1}DeepFCN}{3}{subsection.3.1}%
-\contentsline {section}{\numberline {4}Segmentation Heads}{3}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Euclidean (Baseline)}{3}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Hyperbolic (Ganea / Atigh Baseline)}{3}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Pontryagin (This Work)}{3}{subsection.4.3}%
-\contentsline {paragraph}{Motivation.}{3}{section*.5}%
-\contentsline {paragraph}{Random feature construction.}{4}{section*.6}%
-\contentsline {subparagraph}{Positive component — RFF.}{4}{section*.7}%
-\contentsline {subparagraph}{Negative component — SRF.}{4}{section*.8}%
-\contentsline {subparagraph}{Concatenation.}{4}{section*.9}%
-\contentsline {paragraph}{J-hyperplane classification.}{4}{section*.10}%
-\contentsline {section}{\numberline {5}Loss Function}{4}{section.5}%
-\contentsline {paragraph}{Cross-entropy.}{5}{section*.11}%
-\contentsline {paragraph}{Cone penalty on weights $\mathcal {L}_{\text {cone-W}}$.}{5}{section*.12}%
-\contentsline {paragraph}{Topographic penalty $\mathcal {L}_{\text {topo}}$.}{5}{section*.13}%
-\contentsline {paragraph}{Balance penalty $\mathcal {L}_{\text {balance}}$.}{5}{section*.14}%
-\contentsline {section}{\numberline {6}Training Protocol}{5}{section.6}%
-\contentsline {paragraph}{Optimiser.}{5}{section*.15}%
-\contentsline {paragraph}{Scheduler.}{5}{section*.16}%
-\contentsline {paragraph}{Early stopping.}{5}{section*.17}%
-\contentsline {paragraph}{Batch size.}{5}{section*.18}%
-\contentsline {paragraph}{Hardware.}{5}{section*.19}%
-\contentsline {section}{\numberline {7}Hyperparameter Optimisation}{5}{section.7}%
-\contentsline {subsection}{\numberline {7.1}Common to all models}{6}{subsection.7.1}%
-\contentsline {subsection}{\numberline {7.2}Hyperbolic-specific}{6}{subsection.7.2}%
-\contentsline {subsection}{\numberline {7.3}Pontryagin-specific}{6}{subsection.7.3}%
-\contentsline {section}{\numberline {8}Evaluation Metrics}{6}{section.8}%
-\contentsline {paragraph}{Per-class metrics.}{6}{section*.20}%
-\contentsline {paragraph}{Global metrics.}{6}{section*.21}%
-\contentsline {section}{\numberline {9}Interpretability: SegScoreCAM}{7}{section.9}%
-\contentsline {subsection}{\numberline {9.1}Motivation}{7}{subsection.9.1}%
-\contentsline {subsection}{\numberline {9.2}SegScoreCAM}{7}{subsection.9.2}%
-\contentsline {subsection}{\numberline {9.3}Interpretability Metrics}{7}{subsection.9.3}%
-\contentsline {subsection}{\numberline {9.4}Interpretability Results}{7}{subsection.9.4}%
-\contentsline {section}{\numberline {10}Discussion}{8}{section.10}%
-\contentsline {paragraph}{Pontryagin vs Euclidean.}{8}{section*.23}%
-\contentsline {paragraph}{Signature and degree.}{8}{section*.24}%
-\contentsline {paragraph}{Interpretability.}{8}{section*.25}%
-\contentsline {section}{\numberline {11}Conclusion}{8}{section.11}%
+\contentsline {subsection}{\numberline {3.2}U-Net Backbone}{3}{subsection.3.2}%
+\contentsline {paragraph}{Encoder.}{3}{section*.5}%
+\contentsline {paragraph}{Bottleneck.}{3}{section*.6}%
+\contentsline {paragraph}{Decoder.}{3}{section*.7}%
+\contentsline {section}{\numberline {4}Segmentation Heads}{4}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Vanilla (U-Net baseline only)}{4}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Euclidean (Baseline)}{4}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Hyperbolic (Ganea / Atigh Baseline)}{4}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Pontryagin (This Work)}{4}{subsection.4.4}%
+\contentsline {paragraph}{Motivation.}{4}{section*.8}%
+\contentsline {paragraph}{Random feature construction.}{4}{section*.9}%
+\contentsline {subparagraph}{Positive component — RFF.}{5}{section*.10}%
+\contentsline {subparagraph}{Negative component — SRF.}{5}{section*.11}%
+\contentsline {subparagraph}{Concatenation.}{5}{section*.12}%
+\contentsline {paragraph}{J-hyperplane classification.}{5}{section*.13}%
+\contentsline {section}{\numberline {5}Loss Function}{5}{section.5}%
+\contentsline {paragraph}{Cross-entropy.}{6}{section*.14}%
+\contentsline {paragraph}{Topographic penalty $\mathcal {L}_{\text {topo}}$.}{6}{section*.15}%
+\contentsline {paragraph}{Balance penalty $\mathcal {L}_{\text {balance}}$.}{6}{section*.16}%
+\contentsline {section}{\numberline {6}Training Protocol}{6}{section.6}%
+\contentsline {paragraph}{Optimiser.}{6}{section*.17}%
+\contentsline {paragraph}{Scheduler.}{6}{section*.18}%
+\contentsline {paragraph}{Early stopping.}{6}{section*.19}%
+\contentsline {paragraph}{Batch size.}{6}{section*.20}%
+\contentsline {paragraph}{Hardware.}{6}{section*.21}%
+\contentsline {section}{\numberline {7}Hyperparameter Optimisation}{7}{section.7}%
+\contentsline {subsection}{\numberline {7.1}FCN experiments}{7}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}U-Net experiments}{7}{subsection.7.2}%
+\contentsline {paragraph}{Design rationale for $\kappa $.}{7}{section*.22}%
+\contentsline {paragraph}{Decoupling $\kappa $ and $d_{\mathrm {poly}}$.}{7}{section*.23}%
+\contentsline {paragraph}{Gradient-tuned parameters.}{8}{section*.24}%
+\contentsline {section}{\numberline {8}Evaluation Metrics}{8}{section.8}%
+\contentsline {paragraph}{Per-class metrics.}{8}{section*.25}%
+\contentsline {paragraph}{Global metrics.}{8}{section*.26}%
+\contentsline {section}{\numberline {9}Interpretability: SegScoreCAM}{8}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Motivation}{8}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}SegScoreCAM}{8}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Interpretability Metrics}{9}{subsection.9.3}%
+\contentsline {paragraph}{Adaptive binarisation (Otsu).}{9}{section*.27}%
+\contentsline {paragraph}{GT-alignment metrics.}{9}{section*.28}%
+\contentsline {paragraph}{Confidence gain.}{9}{section*.29}%
+\contentsline {subsection}{\numberline {9.4}Interpretability Results}{9}{subsection.9.4}%
+\contentsline {section}{\numberline {10}Discussion}{10}{section.10}%
+\contentsline {paragraph}{Decoupling $\kappa $ and $d_{\mathrm {poly}}$.}{10}{section*.31}%
+\contentsline {paragraph}{Expanded signature search space.}{10}{section*.32}%
+\contentsline {paragraph}{Interpretability findings.}{11}{section*.33}%
+\contentsline {section}{\numberline {11}Conclusion}{11}{section.11}%
