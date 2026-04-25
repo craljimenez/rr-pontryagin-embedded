@@ -813,7 +813,7 @@ def main() -> None:
 
     params: dict = {}
     if args.load_best_params:
-        bp_path = RESULTS_DIR / args.model / "hpo" / "best_params.json"
+        bp_path = results_dir / args.model / "hpo" / "best_params.json"
         if not bp_path.exists():
             raise FileNotFoundError(
                 f"No best_params.json found at {bp_path}. "
