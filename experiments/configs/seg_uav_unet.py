@@ -14,7 +14,7 @@ DATASET_ROOT = Path(__file__).parents[3] / "002_rff_ss" / "DATASETS" / "UAV_segm
 RESULTS_DIR  = Path(__file__).parents[1] / "results" / "seg_uav_unet"
 
 # ── dataset ───────────────────────────────────────────────────────────────────
-IMG_SIZE             = 512
+IMG_SIZE             = 256
 BINARY_SUGARCANE     = True
 BINARY_ONLY_SUGARCANE = True
 N_CLASSES            = 2
