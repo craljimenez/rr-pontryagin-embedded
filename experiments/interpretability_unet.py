@@ -120,7 +120,7 @@ class SegScoreCAM:
             cam.unsqueeze(0).unsqueeze(0),
             size=input_tensor.shape[-2:],
             mode="bilinear", align_corners=False,
-        )[0, 0].numpy()
+        )[0, 0].cpu().numpy()
 
         lo, hi = cam.min(), cam.max()
         if hi - lo > 1e-8:
