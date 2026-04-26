@@ -63,7 +63,13 @@ def load_unet_model(model_type: str, results_dir=None):
         with open(params_path) as f:
             params = json.load(f)
     model = build_unet_model(model_type, params)
-    ckpt  = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    try:
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    except (EOFError, RuntimeError) as e:
+        raise FileNotFoundError(
+            f"Checkpoint for {model_type} is corrupt or incomplete "
+            f"({ckpt_path}): {e}"
+        ) from e
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     return model, params
@@ -200,7 +206,7 @@ def _denorm(t):
 
 
 def _overlay(rgb, cam, alpha=0.5, cmap="jet"):
-    heatmap = plt.cm.get_cmap(cmap)(cam)[..., :3]
+    heatmap = plt.colormaps[cmap](cam)[..., :3]
     return (alpha * heatmap + (1 - alpha) * rgb).clip(0, 1)
 
 
