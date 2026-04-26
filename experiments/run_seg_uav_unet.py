@@ -15,7 +15,9 @@ Usage:
 
 import argparse
 import json
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -385,7 +387,9 @@ def train_one_model(
     best_val_iou   = -1.0
     best_val_metrics = {}
     patience_cnt   = 0
-    ckpt_path      = out_dir / "best_model.pth"
+    final_ckpt_path = out_dir / "best_model.pth"
+    # Write checkpoints to local /tmp to avoid partial writes on Drive
+    tmp_ckpt = Path(tempfile.mktemp(suffix=".pth"))
 
     t0 = time.time()
     for epoch in range(1, epochs + 1):
@@ -404,7 +408,7 @@ def train_one_model(
                 "model_type": model_type,
                 "val_metrics": val_m["global"],
                 "params": params,
-            }, ckpt_path)
+            }, tmp_ckpt)
         else:
             patience_cnt += 1
 
@@ -421,8 +425,12 @@ def train_one_model(
     if verbose:
         print(f"  Training time: {elapsed:.0f}s")
 
+    # Copy completed checkpoint from /tmp to final destination (Drive)
+    shutil.copy2(tmp_ckpt, final_ckpt_path)
+    tmp_ckpt.unlink(missing_ok=True)
+
     # ── Test evaluation ──────────────────────────────────────────────────────
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    ckpt = torch.load(final_ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     test_m = evaluate(model, data["test_dl"], device)
 

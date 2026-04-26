@@ -19,7 +19,9 @@ Results are saved under experiments/results/seg_uav/<model>/:
 import argparse
 import csv
 import json
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -671,9 +673,11 @@ def train_one_model(
         optimiser, T_max=epochs, eta_min=LR_MIN
     )
 
-    csv_path   = out_dir / "metrics.csv"
-    model_path = out_dir / "best_model.pth"
-    viz_dir    = out_dir / "viz"
+    csv_path        = out_dir / "metrics.csv"
+    final_model_path = out_dir / "best_model.pth"
+    # Write to local /tmp during training to avoid partial writes on Drive
+    tmp_ckpt = Path(tempfile.mktemp(suffix=".pth"))
+    viz_dir  = out_dir / "viz"
 
     with open(csv_path, "w", newline="") as f:
         csv.writer(f).writerow([
@@ -726,7 +730,7 @@ def train_one_model(
                 "val_metrics": val_metrics,
                 "model_type": model_type,
                 "params": params,
-            }, model_path)
+            }, tmp_ckpt)
             save_per_class_csv(val_metrics, out_dir / "val_per_class_best.csv")
             if verbose:
                 print(f"  ↑ best model saved (macro mIoU = {best_miou:.4f})")
@@ -741,10 +745,14 @@ def train_one_model(
             save_validation_grid(model, data["valid_ds"], device,
                                  out_path=viz_dir / f"valid_epoch{epoch:03d}.png")
 
+    # ── copy best checkpoint from /tmp/ to final destination ─────────────────
+    shutil.copy2(tmp_ckpt, final_model_path)
+    tmp_ckpt.unlink(missing_ok=True)
+
     # ── test evaluation with best checkpoint ──────────────────────────────────
     if verbose:
         print("\nLoading best model for test evaluation …")
-    ckpt = torch.load(model_path, map_location=device, weights_only=False)
+    ckpt = torch.load(final_model_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     test_metrics = evaluate(model, data["test_dl"], device)
     if verbose:
