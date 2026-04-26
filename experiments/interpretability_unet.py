@@ -118,7 +118,10 @@ class SegScoreCAM:
 
         scores_t = torch.tensor(scores, dtype=torch.float32,
                                 device=feature_maps.device)
-        weights  = F.softmax(scores_t, dim=0)         # (C,) same device as feature_maps
+        # Raw scores preserve class discrimination; F.softmax collapses them to
+        # near-uniform weights for binary segmentation (P(bg)+P(sg)≈1 per channel).
+        total = scores_t.sum()
+        weights = scores_t / total if total > 1e-8 else torch.ones_like(scores_t) / n_ch
 
         cam = (feature_maps[0] * weights[:, None, None]).sum(dim=0)  # (H', W')
         cam = F.relu(cam)
