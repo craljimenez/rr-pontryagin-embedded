@@ -68,10 +68,11 @@ CAM_LABELS  = {
     "gt_recall":        "GT Recall ↑",
     "gt_precision":     "GT Precision ↑",
     "gt_pearson":       "GT Pearson ↑",
-    "mean_activation":  "Mean activation ↓",
-    "mean_conf_change": "Conf. change % ↑",
+    "mean_activation":  "Mean Activation ↓",
+    "mean_conf_change": "Confidence Change % (→ 0)",
 }
-CAM_LOWER_IS_BETTER = {"mean_activation"}
+CAM_LOWER_IS_BETTER  = {"mean_activation"}
+CAM_CLOSER_TO_ZERO   = {"mean_conf_change"}   # best = |value| closest to 0
 
 
 def load_cam_metrics(results_dir):
@@ -104,8 +105,41 @@ def load_cam_metrics(results_dir):
 # Plotting
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _single_metric_chart(metric: str, label: str,
+                         means: pd.DataFrame, stds: pd.DataFrame,
+                         out_path: Path) -> None:
+    """One PDF per metric — 4 bars (one per model) with ±1 std error bars."""
+    present = [m for m in AVAILABLE_MODELS if m in means.index]
+    x       = np.arange(len(present))
+    vals    = means.loc[present, metric].values.astype(float)
+    errs    = stds.loc[present, metric].values.astype(float)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.bar(x, vals, 0.55,
+           color=[COLOURS[i % len(COLOURS)] for i in range(len(present))],
+           alpha=0.85,
+           yerr=errs, capsize=5,
+           error_kw={"elinewidth": 1.4, "ecolor": "black", "alpha": 0.75})
+
+    # Zero reference line (visible when values span negative range)
+    lo = (vals - errs).min()
+    hi = (vals + errs).max()
+    if lo < 0 < hi or metric in CAM_CLOSER_TO_ZERO:
+        ax.axhline(0, color="gray", linewidth=0.9, linestyle="--", alpha=0.7)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(present, fontsize=11)
+    ax.set_ylabel(label, fontsize=11)
+    ax.set_title(f"{label}  (mean ± std, test set)", fontsize=11)
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=150, format="pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved → {out_path}")
+
+
 def _bar_chart(means: pd.DataFrame, metrics: list, labels: dict,
-               title: str, out_path: Path) -> None:
+               title: str, out_path: Path,
+               stds: pd.DataFrame | None = None) -> None:
     present = [m for m in AVAILABLE_MODELS if m in means.index]
     n_m = len(metrics)
     n_mdl = len(present)
@@ -115,8 +149,13 @@ def _bar_chart(means: pd.DataFrame, metrics: list, labels: dict,
     fig, ax = plt.subplots(figsize=(max(10, n_m * 1.8), 5))
     for i, mt in enumerate(present):
         vals = means.loc[mt, metrics].values.astype(float)
+        yerr = None
+        if stds is not None and mt in stds.index:
+            yerr = stds.loc[mt, metrics].values.astype(float)
         ax.bar(x + i * width, vals, width, label=mt,
-               color=COLOURS[i % len(COLOURS)], alpha=0.85)
+               color=COLOURS[i % len(COLOURS)], alpha=0.85,
+               yerr=yerr, capsize=4,
+               error_kw={"elinewidth": 1.2, "ecolor": "black", "alpha": 0.7})
 
     ax.set_xticks(x + width * (n_mdl - 1) / 2)
     ax.set_xticklabels([labels[m] for m in metrics], fontsize=10)
@@ -172,19 +211,35 @@ def main():
         print()
 
         cam_means = cam_df.groupby("model")[CAM_METRICS].mean()
+        cam_stds  = cam_df.groupby("model")[CAM_METRICS].std(ddof=1).fillna(0)
         print("Best model per CAM metric:")
         for m in CAM_METRICS:
             if m in CAM_LOWER_IS_BETTER:
                 winner = cam_means[m].idxmin()
-                note = "(lower)"
+                note = "(lower is better)"
+            elif m in CAM_CLOSER_TO_ZERO:
+                winner = cam_means[m].abs().idxmin()
+                note = "(closer to 0 is better)"
             else:
                 winner = cam_means[m].idxmax()
-                note = "(higher)"
+                note = "(higher is better)"
             print(f"  {CAM_LABELS[m]:<22} → {winner}  {note}")
 
+        # Combined overview chart
         _bar_chart(cam_means, CAM_METRICS, CAM_LABELS,
-                   "UNet SegScoreCAM interpretability comparison",
-                   results_dir / "gradcam_comparison.pdf")
+                   "UNet SegScoreCAM interpretability comparison (mean ± std across test images)",
+                   results_dir / "gradcam_comparison.pdf",
+                   stds=cam_stds)
+
+        # Individual per-metric charts for detailed inspection
+        gradcam_dir = results_dir / "gradcam_per_metric"
+        gradcam_dir.mkdir(parents=True, exist_ok=True)
+        for m in CAM_METRICS:
+            _single_metric_chart(
+                metric=m, label=CAM_LABELS[m],
+                means=cam_means, stds=cam_stds,
+                out_path=gradcam_dir / f"{m}.pdf",
+            )
 
 
 if __name__ == "__main__":
