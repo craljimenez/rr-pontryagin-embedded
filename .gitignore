@@ -32,4 +32,5 @@ results/
 
 .claude/*
 
-experiments/report/
+experiments/report/*
+experiments/report
