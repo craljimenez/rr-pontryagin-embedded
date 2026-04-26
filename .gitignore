@@ -31,3 +31,5 @@ checkpoints/
 results/
 
 .claude/*
+
+experiments/report/
