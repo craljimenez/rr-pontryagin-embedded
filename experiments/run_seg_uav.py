@@ -19,6 +19,7 @@ Results are saved under experiments/results/seg_uav/<model>/:
 import argparse
 import csv
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -675,8 +676,9 @@ def train_one_model(
 
     csv_path        = out_dir / "metrics.csv"
     final_model_path = out_dir / "best_model.pth"
-    # Write to local /tmp during training to avoid partial writes on Drive
-    tmp_ckpt = Path(tempfile.mktemp(suffix=".pth"))
+    _fd, _tmp_path = tempfile.mkstemp(suffix=".pth")
+    os.close(_fd)
+    tmp_ckpt = Path(_tmp_path)
     viz_dir  = out_dir / "viz"
 
     with open(csv_path, "w", newline="") as f:
@@ -696,58 +698,60 @@ def train_one_model(
         print("\n" + header)
         print("─" * len(header))
 
-    for epoch in range(1, epochs + 1):
-        t0 = time.time()
-        train_loss = train_epoch(model, data["train_dl"], optimiser, device)
-        val_metrics = evaluate(model, data["valid_dl"], device)
-        scheduler.step()
+    try:
+        for epoch in range(1, epochs + 1):
+            t0 = time.time()
+            train_loss = train_epoch(model, data["train_dl"], optimiser, device)
+            val_metrics = evaluate(model, data["valid_dl"], device)
+            scheduler.step()
 
-        cur_lr = scheduler.get_last_lr()[0]
-        g  = val_metrics["global"]
+            cur_lr = scheduler.get_last_lr()[0]
+            g  = val_metrics["global"]
 
-        if verbose:
-            print(
-                f"{epoch:6d}  {train_loss:8.4f}  {g['pixel_acc']:8.4f}  "
-                f"{g['macro_iou']:8.4f}  {g['macro_dice']:8.4f}  "
-                f"{cur_lr:10.2e}  ({time.time()-t0:.1f}s)"
-            )
-
-        with open(csv_path, "a", newline="") as f:
-            csv.writer(f).writerow([
-                epoch, round(train_loss, 5), round(cur_lr, 8),
-                round(g["pixel_acc"], 5),
-                round(g["macro_iou"], 5), round(g["macro_dice"], 5),
-                round(g["micro_iou"], 5), round(g["micro_dice"], 5),
-            ])
-
-        if g["macro_iou"] > best_miou:
-            best_miou = g["macro_iou"]
-            best_epoch = epoch
-            patience_counter = 0
-            torch.save({
-                "model_state_dict": model.state_dict(),
-                "epoch": epoch,
-                "val_metrics": val_metrics,
-                "model_type": model_type,
-                "params": params,
-            }, tmp_ckpt)
-            save_per_class_csv(val_metrics, out_dir / "val_per_class_best.csv")
             if verbose:
-                print(f"  ↑ best model saved (macro mIoU = {best_miou:.4f})")
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
+                print(
+                    f"{epoch:6d}  {train_loss:8.4f}  {g['pixel_acc']:8.4f}  "
+                    f"{g['macro_iou']:8.4f}  {g['macro_dice']:8.4f}  "
+                    f"{cur_lr:10.2e}  ({time.time()-t0:.1f}s)"
+                )
+
+            with open(csv_path, "a", newline="") as f:
+                csv.writer(f).writerow([
+                    epoch, round(train_loss, 5), round(cur_lr, 8),
+                    round(g["pixel_acc"], 5),
+                    round(g["macro_iou"], 5), round(g["macro_dice"], 5),
+                    round(g["micro_iou"], 5), round(g["micro_dice"], 5),
+                ])
+
+            if g["macro_iou"] > best_miou:
+                best_miou = g["macro_iou"]
+                best_epoch = epoch
+                patience_counter = 0
+                torch.save({
+                    "model_state_dict": model.state_dict(),
+                    "epoch": epoch,
+                    "val_metrics": val_metrics,
+                    "model_type": model_type,
+                    "params": params,
+                }, tmp_ckpt)
+                save_per_class_csv(val_metrics, out_dir / "val_per_class_best.csv")
                 if verbose:
-                    print(f"\nEarly stopping after {patience_counter} epochs without improvement.")
-                break
+                    print(f"  ↑ best model saved (macro mIoU = {best_miou:.4f})")
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    if verbose:
+                        print(f"\nEarly stopping after {patience_counter} epochs without improvement.")
+                    break
 
-        if save_viz and (epoch % 10 == 0 or epoch == epochs):
-            save_validation_grid(model, data["valid_ds"], device,
-                                 out_path=viz_dir / f"valid_epoch{epoch:03d}.png")
-
-    # ── copy best checkpoint from /tmp/ to final destination ─────────────────
-    shutil.copy2(tmp_ckpt, final_model_path)
-    tmp_ckpt.unlink(missing_ok=True)
+            if save_viz and (epoch % 10 == 0 or epoch == epochs):
+                save_validation_grid(model, data["valid_ds"], device,
+                                     out_path=viz_dir / f"valid_epoch{epoch:03d}.png")
+    finally:
+        # Always copy to final destination, even on crash — preserves best-so-far
+        if tmp_ckpt.exists():
+            shutil.copy2(tmp_ckpt, final_model_path)
+            tmp_ckpt.unlink(missing_ok=True)
 
     # ── test evaluation with best checkpoint ──────────────────────────────────
     if verbose:

@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -388,46 +389,49 @@ def train_one_model(
     best_val_metrics = {}
     patience_cnt   = 0
     final_ckpt_path = out_dir / "best_model.pth"
-    # Write checkpoints to local /tmp to avoid partial writes on Drive
-    tmp_ckpt = Path(tempfile.mktemp(suffix=".pth"))
+    _fd, _tmp_path = tempfile.mkstemp(suffix=".pth")
+    os.close(_fd)
+    tmp_ckpt = Path(_tmp_path)
 
     t0 = time.time()
-    for epoch in range(1, epochs + 1):
-        tr_loss = train_epoch(model, data["train_dl"], optimiser, device)
-        val_m   = evaluate(model, data["val_dl"], device)
-        val_iou = val_m["global"]["macro_iou"]
-        scheduler.step()
+    try:
+        for epoch in range(1, epochs + 1):
+            tr_loss = train_epoch(model, data["train_dl"], optimiser, device)
+            val_m   = evaluate(model, data["val_dl"], device)
+            val_iou = val_m["global"]["macro_iou"]
+            scheduler.step()
 
-        if val_iou > best_val_iou:
-            best_val_iou     = val_iou
-            best_val_metrics = val_m
-            patience_cnt     = 0
-            torch.save({
-                "model_state_dict": model.state_dict(),
-                "epoch": epoch,
-                "model_type": model_type,
-                "val_metrics": val_m["global"],
-                "params": params,
-            }, tmp_ckpt)
-        else:
-            patience_cnt += 1
+            if val_iou > best_val_iou:
+                best_val_iou     = val_iou
+                best_val_metrics = val_m
+                patience_cnt     = 0
+                torch.save({
+                    "model_state_dict": model.state_dict(),
+                    "epoch": epoch,
+                    "model_type": model_type,
+                    "val_metrics": val_m["global"],
+                    "params": params,
+                }, tmp_ckpt)
+            else:
+                patience_cnt += 1
 
-        if verbose and (epoch % 5 == 0 or epoch == 1):
-            print(f"  ep {epoch:3d}  loss={tr_loss:.4f}  "
-                  f"val_mIoU={val_iou:.4f}  best={best_val_iou:.4f}")
+            if verbose and (epoch % 5 == 0 or epoch == 1):
+                print(f"  ep {epoch:3d}  loss={tr_loss:.4f}  "
+                      f"val_mIoU={val_iou:.4f}  best={best_val_iou:.4f}")
 
-        if patience_cnt >= EARLY_STOP_PATIENCE:
-            if verbose:
-                print(f"  Early stop at epoch {epoch}")
-            break
+            if patience_cnt >= EARLY_STOP_PATIENCE:
+                if verbose:
+                    print(f"  Early stop at epoch {epoch}")
+                break
+    finally:
+        # Always copy to final destination, even on crash — preserves best-so-far
+        if tmp_ckpt.exists():
+            shutil.copy2(tmp_ckpt, final_ckpt_path)
+            tmp_ckpt.unlink(missing_ok=True)
 
     elapsed = time.time() - t0
     if verbose:
         print(f"  Training time: {elapsed:.0f}s")
-
-    # Copy completed checkpoint from /tmp to final destination (Drive)
-    shutil.copy2(tmp_ckpt, final_ckpt_path)
-    tmp_ckpt.unlink(missing_ok=True)
 
     # ── Test evaluation ──────────────────────────────────────────────────────
     ckpt = torch.load(final_ckpt_path, map_location=device, weights_only=False)
