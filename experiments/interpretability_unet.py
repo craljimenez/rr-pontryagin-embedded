@@ -105,10 +105,12 @@ class SegScoreCAM:
         scores = []
         for k in range(n_ch):
             fm = feature_maps[:, k:k+1, :, :]        # (1, 1, H', W')
-            # Normalise to [0,1]
+            # Normalise to [0,1]; constant channels carry no spatial info → zero mask
             lo, hi = fm.min(), fm.max()
             if hi - lo > 1e-8:
                 fm = (fm - lo) / (hi - lo)
+            else:
+                fm = torch.zeros_like(fm)
             mask_k = F.interpolate(fm, size=input_tensor.shape[-2:],
                                    mode="bilinear", align_corners=False)
             with torch.no_grad():
@@ -224,7 +226,13 @@ def analyse_model(model_type: str, device: torch.device,
     model, _ = load_unet_model(model_type, results_dir=_res)
     model     = model.to(device)
 
-    target_layer = model.backbone.dec_blocks[-1]
+    # Pontryagin: class-discriminative features live in the embedding space
+    # (PontryaginEmbedding), not in the backbone. For all other models the
+    # backbone output feeds directly into the classifier, so dec_blocks[-1] is correct.
+    if model_type == "pontryagin":
+        target_layer = model.embed_layer
+    else:
+        target_layer = model.backbone.dec_blocks[-1]
     ssc = SegScoreCAM(model, target_layer)
 
     dataset = UAVSegDataset(
