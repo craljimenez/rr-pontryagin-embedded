@@ -71,5 +71,8 @@ torch==2.10.0+cu130
 torchaudio==2.10.0+cu130
 torchvision==0.25.0+cu130
 tqdm==4.67.3
+timm>=0.9.0
+kagglehub>=0.3.0
+python-dotenv>=1.0.0
 triton==3.6.0
 typing_extensions==4.15.0
