@@ -226,16 +226,38 @@ def scorecam_analysis(
                     bbox_inches="tight")
         plt.close(fig)
 
-        all_metrics[str(idx)] = {
+        # ── Interpretability metrics ────────────────────────────────────────
+        def _cam_entropy(c):
+            h = cams[c]
+            total = h.sum() + 1e-8
+            p = h / total
+            return float(-np.where(p > 0, p * np.log(p + 1e-12), 0).sum())
+
+        def _confidence_gain(c):
+            cam_mask = torch.tensor(cams[c], dtype=torch.float32,
+                                    device=device)[None, None]
+            cam_mask = cam_mask.expand_as(inp)
+            with torch.no_grad():
+                p_mask = torch.softmax(model(inp * cam_mask), dim=1)[0, c].item()
+            return float(p_mask - probs[c])
+
+        metrics_entry = {
             "true_class": class_names[true_lbl],
             "pred_class": class_names[pred],
             "correct":    pred == true_lbl,
             "probs":      probs.tolist(),
-            "cam_mean_true_class": float(cams[true_lbl].mean()),
-            "cam_mean_pred_class": float(cams[pred].mean()),
         }
+        for c, cn in enumerate(class_names):
+            cam_c = cams[c]
+            metrics_entry[cn] = {
+                "mean_activation": float(cam_c.mean()),
+                "activation_entropy": _cam_entropy(c),
+                "confidence_gain":    _confidence_gain(c),
+            }
+        all_metrics[str(idx)] = metrics_entry
         print(f"  [{idx+1:3d}] {class_names[true_lbl]:>10} → {class_names[pred]}  "
-              f"{'✓' if pred == true_lbl else '✗'}")
+              f"{'✓' if pred == true_lbl else '✗'}  "
+              f"Δp_pred={metrics_entry[class_names[pred]]['confidence_gain']:+.3f}")
 
     cam.remove()
     with open(out_dir / "metrics.json", "w") as f:
@@ -338,18 +360,25 @@ def lime_analysis(
                     bbox_inches="tight")
         plt.close(fig)
 
-        # Feature importance for predicted class
-        seg_map       = explanation.segments
-        importances   = explanation.local_exp.get(pred, [])
-        top_imp_mean  = float(np.mean([abs(w) for _, w in importances[:5]])) if importances else 0.0
+        # ── LIME interpretability metrics ────────────────────────────────
+        importances = explanation.local_exp.get(pred, [])
+        top5_mean_abs = (
+            float(np.mean([abs(w) for _, w in importances[:5]]))
+            if len(importances) >= 1 else 0.0
+        )
+        # R² fidelity of the local linear model (sklearn score attribute)
+        local_r2 = float(getattr(explanation, "score", float("nan")))
+
         all_metrics[str(idx)] = {
-            "true_class":       class_names[true_lbl],
-            "pred_class":       class_names[pred],
-            "correct":          pred == true_lbl,
-            "top5_importance_mean": top_imp_mean,
+            "true_class":           class_names[true_lbl],
+            "pred_class":           class_names[pred],
+            "correct":              pred == true_lbl,
+            "local_fidelity_r2":    local_r2,
+            "top5_mean_abs_weight": top5_mean_abs,
         }
         print(f"  [{idx+1:3d}] {class_names[true_lbl]:>10} → {class_names[pred]}  "
-              f"{'✓' if pred == true_lbl else '✗'}")
+              f"{'✓' if pred == true_lbl else '✗'}  "
+              f"R²={local_r2:.3f}  |w|₅={top5_mean_abs:.4f}")
 
     with open(out_dir / "metrics.json", "w") as f:
         json.dump(all_metrics, f, indent=2)
@@ -370,7 +399,8 @@ def embedding_energy_analysis(
 ):
     """Visualise positive / negative subspace energy maps for Pontryagin model."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    indices = range(len(dataset)) if n_samples is None else range(min(n_samples, len(dataset)))
+    indices    = range(len(dataset)) if n_samples is None else range(min(n_samples, len(dataset)))
+    all_metrics: dict = {}
 
     for idx in indices:
         img_t, true_lbl = dataset[idx]
@@ -435,8 +465,26 @@ def embedding_energy_analysis(
                     bbox_inches="tight")
         plt.close(fig)
 
+        # ── Embedding energy metrics ──────────────────────────────────────
+        mean_ep = float(e_pos.mean())
+        mean_en = float(e_neg.mean())
+        rho     = mean_ep / (mean_ep + abs(mean_en) + 1e-8)   # energy balance ρ
+        delta   = mean_ep - mean_en                            # energy contrast Δ
+        all_metrics[str(idx)] = {
+            "true_class":            class_names[true_lbl],
+            "pred_class":            class_names[pred],
+            "correct":               pred == true_lbl,
+            "mean_e_pos":            mean_ep,
+            "mean_e_neg":            mean_en,
+            "energy_balance_rho":    rho,
+            "energy_contrast_delta": delta,
+        }
         print(f"  [{idx+1:3d}] {class_names[true_lbl]:>10} → {class_names[pred]}  "
-              f"E+={e_pos.mean():.4f}  E-={e_neg.mean():.4f}")
+              f"E+={mean_ep:.4f}  E-={mean_en:.4f}  ρ={rho:.3f}  Δ={delta:.4f}")
+
+    with open(out_dir / "metrics.json", "w") as f:
+        json.dump(all_metrics, f, indent=2)
+    print(f"  Embedding energy metrics → {out_dir / 'metrics.json'}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
