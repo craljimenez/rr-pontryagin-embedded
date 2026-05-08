@@ -1,9 +1,13 @@
 """ConvNeXtV2-Tiny classification experiments — Sugarcane Leaf Disease Dataset.
 
-Two models share the same ConvNeXtV2-Tiny backbone and training protocol:
+Three models share the same ConvNeXtV2-Tiny backbone and training protocol:
 
-    euclidean   — ConvNeXtV2-Tiny + fine-tuned linear head (CE + label smoothing)
-    pontryagin  — ConvNeXtV2-Tiny + PontryaginEmbedding + PontryaginMLR
+    euclidean          — ConvNeXtV2-Tiny + fine-tuned linear head (CE + label smoothing)
+    pontryagin         — ConvNeXtV2-Tiny + PontryaginEmbedding + PontryaginMLR
+                         (CE + L_balance_W + L_topo)
+    pontryagin_margin  — Same architecture as pontryagin but with
+                         PontryaginMarginCLS head
+                         (CE + L_balance_W + L_margin_proto + L_orth_W)
 
 Kaggle dataset: nirmalsankalana/sugarcane-leaf-disease-dataset
 Download requires KAGGLE_USERNAME and KAGGLE_KEY in .env (copy from .env.example).
@@ -11,6 +15,7 @@ Download requires KAGGLE_USERNAME and KAGGLE_KEY in .env (copy from .env.example
 Usage:
     python run_cls_sugarcane.py --model euclidean
     python run_cls_sugarcane.py --model pontryagin
+    python run_cls_sugarcane.py --model pontryagin_margin
     python run_cls_sugarcane.py --model all
     python run_cls_sugarcane.py --model all --data-root /path/to/dataset
 """
@@ -42,11 +47,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from configs.cls_sugarcane import (
     AVAILABLE_MODELS, BACKBONE_NAME, BACKBONE_OUT_CH, BATCH_SIZE, D_POLY,
     DEVICE, EARLY_STOP_PATIENCE, EPOCHS, IMG_SIZE, KAPPA, LABEL_SMOOTHING,
-    LAMBDA_BALANCE, LAMBDA_TOPO, LR, LR_BACKBONE, LR_MIN, N_RFF, NUM_WORKERS,
-    PRETRAINED, RESULTS_DIR, RFF_MULTIPLIER, SEED, SIGMA, TEST_SPLIT,
-    TOPO_KWARGS, VAL_SPLIT, WEIGHT_DECAY,
+    LAMBDA_BALANCE, LAMBDA_MARGIN, LAMBDA_ORTH_W, LAMBDA_TOPO, LR,
+    LR_BACKBONE, LR_MIN, MARGIN, N_RFF, NUM_WORKERS, PRETRAINED, RESULTS_DIR,
+    RFF_MULTIPLIER, SEED, SIGMA, TEST_SPLIT, TOPO_KWARGS, VAL_SPLIT,
+    WEIGHT_DECAY,
 )
 from prfe.layers.pontryagin import PontryaginEmbedding
+from prfe.losses.margin_cls import PontryaginMarginCLS
 from prfe.losses.mlr import PontryaginMLR
 
 try:
@@ -325,6 +332,79 @@ class PontryaginConvNext(_ClsBase):
         ]
 
 
+class PontryaginConvNextMargin(_ClsBase):
+    """ConvNeXtV2-Tiny + PontryaginEmbedding + PontryaginMarginCLS.
+
+    Identical backbone and embedding to PontryaginConvNext.  The loss head
+    is replaced by PontryaginMarginCLS, which uses:
+        CE + L_balance_W + L_margin_proto + L_orth_W
+
+    Instead of the spatial topographic penalty this variant penalises:
+    - separation of batch class prototypes in J-pseudo-distance (L_margin_proto)
+    - J-orthogonality of classifier weight vectors W_y         (L_orth_W)
+    Both terms are motivated by the original Pontryagin MLR formulation and
+    are more natural for global (pooled) classification than spatial topology.
+    """
+
+    def __init__(
+        self,
+        n_classes: int,
+        kappa: int = KAPPA,
+        d_poly: int = D_POLY,
+        rff_multiplier: int = RFF_MULTIPLIER,
+        sigma: float = SIGMA,
+        lambda_balance: float = LAMBDA_BALANCE,
+        lambda_margin: float = LAMBDA_MARGIN,
+        lambda_orth_W: float = LAMBDA_ORTH_W,
+        margin: float = MARGIN,
+    ) -> None:
+        super().__init__()
+        self.backbone = timm.create_model(
+            BACKBONE_NAME,
+            pretrained=PRETRAINED,
+            num_classes=0,
+            global_pool="",
+        )
+        n_rff = int(rff_multiplier) * BACKBONE_OUT_CH
+        n_srf = int(kappa)
+        self.embed_layer = PontryaginEmbedding(
+            BACKBONE_OUT_CH, n_rff, n_srf, int(kappa),
+            d_poly=int(d_poly), sigma=sigma,
+        )
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.head = PontryaginMarginCLS(
+            n_classes,
+            self.embed_layer.out_channels,
+            self.embed_layer.J,
+            lambda_balance=lambda_balance,
+            lambda_margin=lambda_margin,
+            lambda_orth_W=lambda_orth_W,
+            margin=margin,
+        )
+        self.n_classes = n_classes
+
+    def _embed_global(self, x: torch.Tensor) -> torch.Tensor:
+        feats = self.backbone.forward_features(x)   # (B, 768, H', W')
+        z_map = self.embed_layer(feats)              # (B, p+q, H', W')
+        return self.pool(z_map).flatten(1)           # (B, p+q)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head.logits(self._embed_global(x))
+
+    def compute_loss(self, x: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        z = self._embed_global(x)
+        return self.head(z, labels)
+
+    def param_groups(self, lr: float = LR, lr_backbone: float = LR_BACKBONE):
+        bb_params   = list(self.backbone.parameters())
+        bb_ids      = {id(p) for p in bb_params}
+        head_params = [p for p in self.parameters() if id(p) not in bb_ids]
+        return [
+            {"params": bb_params,   "lr": lr_backbone},
+            {"params": head_params, "lr": lr},
+        ]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Factory
 # ─────────────────────────────────────────────────────────────────────────────
@@ -342,6 +422,18 @@ def build_cls_model(model_type: str, n_classes: int, params: dict | None = None)
             sigma=params.get("sigma", SIGMA),
             lambda_topo=params.get("lambda_topo", LAMBDA_TOPO),
             lambda_balance=params.get("lambda_balance", LAMBDA_BALANCE),
+        )
+    if model_type == "pontryagin_margin":
+        return PontryaginConvNextMargin(
+            n_classes=n_classes,
+            kappa=params.get("kappa", KAPPA),
+            d_poly=params.get("d_poly", D_POLY),
+            rff_multiplier=params.get("rff_multiplier", RFF_MULTIPLIER),
+            sigma=params.get("sigma", SIGMA),
+            lambda_balance=params.get("lambda_balance", LAMBDA_BALANCE),
+            lambda_margin=params.get("lambda_margin", LAMBDA_MARGIN),
+            lambda_orth_W=params.get("lambda_orth_W", LAMBDA_ORTH_W),
+            margin=params.get("margin", MARGIN),
         )
     raise ValueError(f"Unknown model type: {model_type!r}")
 

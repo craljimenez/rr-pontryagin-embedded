@@ -1,8 +1,12 @@
 """Config for ConvNeXtV2-Tiny classification on Sugarcane Leaf Disease Dataset.
 
-Two models share the same ConvNeXtV2-Tiny backbone and training protocol:
-    euclidean   — ConvNeXtV2-Tiny + fine-tuned linear head (CE + label smoothing)
-    pontryagin  — ConvNeXtV2-Tiny (frozen stem) + PontryaginEmbedding + PontryaginMLR
+Three models share the same ConvNeXtV2-Tiny backbone and training protocol:
+    euclidean          — ConvNeXtV2-Tiny + fine-tuned linear head (CE + label smoothing)
+    pontryagin         — ConvNeXtV2-Tiny + PontryaginEmbedding + PontryaginMLR
+                         (CE + L_balance_W + L_topo)
+    pontryagin_margin  — Same architecture as pontryagin but with
+                         PontryaginMarginCLS head
+                         (CE + L_balance_W + L_margin_proto + L_orth_W)
 
 Kaggle dataset: nirmalsankalana/sugarcane-leaf-disease-dataset
 Expected classes (resolved at runtime from folder names):
@@ -43,6 +47,11 @@ LAMBDA_BALANCE = 0.1
 LAMBDA_TOPO    = 0.05
 TOPO_KWARGS    = {"lambda_lc": 1.0, "lambda_cc": 0.5, "lambda_sb": 0.5, "lc_epsilon": 0.1}
 
+# ── Pontryagin margin head defaults (pontryagin_margin only) ──────────────────
+LAMBDA_MARGIN  = 0.5    # weight for batch-prototype margin penalty
+LAMBDA_ORTH_W  = 0.1    # weight for J-orthogonality on classifier W
+MARGIN         = 1.0    # J-pseudo-distance margin m
+
 # ── training ──────────────────────────────────────────────────────────────────
 DEVICE               = "cuda"
 BATCH_SIZE           = 32
@@ -55,4 +64,4 @@ WEIGHT_DECAY         = 1e-4
 EARLY_STOP_PATIENCE  = 10
 LABEL_SMOOTHING      = 0.1    # for euclidean CE loss
 
-AVAILABLE_MODELS = ("euclidean", "pontryagin")
+AVAILABLE_MODELS = ("euclidean", "pontryagin", "pontryagin_margin")

@@ -52,16 +52,26 @@ _COMMON = [
 ]
 
 
+_PONTRYAGIN_ARCH = [
+    Integer(1, 32, prior="log-uniform", name="kappa"),
+    Integer(1,  6,                      name="d_poly"),
+    Integer(1,  4,                      name="rff_multiplier"),
+    Real(1e-3, 1.0, prior="log-uniform", name="lambda_balance"),
+]
+
+
 def search_space(model_type: str) -> list:
     if model_type == "euclidean":
         return list(_COMMON)
     if model_type == "pontryagin":
-        return _COMMON + [
-            Integer(1, 32, prior="log-uniform", name="kappa"),
-            Integer(1,  6,                      name="d_poly"),
-            Integer(1,  4,                      name="rff_multiplier"),
+        return _COMMON + _PONTRYAGIN_ARCH + [
             Real(1e-6, 0.5, prior="log-uniform", name="lambda_topo"),
-            Real(1e-3, 1.0, prior="log-uniform", name="lambda_balance"),
+        ]
+    if model_type == "pontryagin_margin":
+        return _COMMON + _PONTRYAGIN_ARCH + [
+            Real(1e-3, 2.0, prior="log-uniform", name="lambda_margin"),
+            Real(1e-3, 1.0, prior="log-uniform", name="lambda_orth_W"),
+            Real(0.1,  5.0,                      name="margin"),
         ]
     raise ValueError(f"Unknown model type: {model_type!r}")
 
