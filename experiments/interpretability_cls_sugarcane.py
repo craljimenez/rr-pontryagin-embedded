@@ -176,12 +176,11 @@ def scorecam_analysis(
     out_dir.mkdir(parents=True, exist_ok=True)
     n_classes = len(class_names)
 
-    # Target layer selection
-    if model_type == "pontryagin":
-        target_layer = model.embed_layer
-    else:
-        # Last ConvNeXt stage of the timm backbone
-        target_layer = model.backbone.stages[-1]
+    # Target layer: last ConvNeXt stage for all models.
+    # With the corrected architecture (GAP → embed_1d) the spatial feature maps
+    # live in the backbone; the Pontryagin embedding operates on the pooled vector
+    # and has no spatial extent to hook into.
+    target_layer = model.backbone.stages[-1]
 
     cam = ClassScoreCAM(model.to(device), target_layer)
 
@@ -407,6 +406,7 @@ def embedding_energy_analysis(
         inp = img_t.unsqueeze(0).to(device)
         rgb = _denorm(img_t).astype(np.float32) / 255.0
 
+        # Capture the spatial Pontryagin map (B, p+q, H', W')
         captured: dict = {}
         handle = model.embed_layer.register_forward_hook(
             lambda *a: captured.__setitem__("z", a[-1])
@@ -417,25 +417,26 @@ def embedding_energy_analysis(
             probs  = torch.softmax(logits, dim=1)[0].cpu().numpy()
         handle.remove()
 
-        z   = captured["z"]                          # (1, p+q, H', W')
-        p   = model.embed_layer.rff.out_features
-        W   = model.head.W                           # (n_classes, p+q)
+        z_map = captured["z"]                            # (1, p+q, H', W')
+        p     = model.embed_layer.rff.out_features
+        W     = model.head.W                             # (n_classes, p+q)
 
-        phi_pos = z[:, :p]                           # (1, p, H', W')
-        phi_neg = z[:, p:]                           # (1, q, H', W')
-        w_pos   = W[pred, :p]
-        w_neg   = W[pred, p:]
+        phi_pos_map = z_map[:, :p]                       # (1, p, H', W')
+        phi_neg_map = z_map[:, p:]                       # (1, q, H', W')
+        w_pos = W[pred, :p]
+        w_neg = W[pred, p:]
 
-        e_pos = (phi_pos * w_pos[None, :, None, None]).sum(1)  # (1, H', W')
-        e_neg = (phi_neg * w_neg[None, :, None, None]).sum(1)
+        # Spatial energy maps: weighted sum over subspace channels
+        e_pos = (phi_pos_map * w_pos[None, :, None, None]).sum(1)  # (1, H', W')
+        e_neg = (phi_neg_map * w_neg[None, :, None, None]).sum(1)
 
         target = inp.shape[-2:]
-        e_pos  = F.interpolate(e_pos.unsqueeze(1), size=target,
-                               mode="bilinear", align_corners=False)[0, 0]
-        e_neg  = F.interpolate(e_neg.unsqueeze(1), size=target,
-                               mode="bilinear", align_corners=False)[0, 0]
-        e_pos  = e_pos.detach().cpu().numpy()
-        e_neg  = e_neg.detach().cpu().numpy()
+        e_pos = F.interpolate(e_pos.unsqueeze(1), size=target,
+                              mode="bilinear", align_corners=False)[0, 0]
+        e_neg = F.interpolate(e_neg.unsqueeze(1), size=target,
+                              mode="bilinear", align_corners=False)[0, 0]
+        e_pos = e_pos.detach().cpu().numpy()
+        e_neg = e_neg.detach().cpu().numpy()
 
         fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
         axes[0].imshow(rgb)

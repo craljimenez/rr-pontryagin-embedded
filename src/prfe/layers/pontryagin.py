@@ -89,6 +89,26 @@ class PontryaginEmbedding(nn.Module):
         # Restore spatial structure
         return z.reshape(B, H, W, self.out_channels).permute(0, 3, 1, 2)  # (B, p+q, H, W)
 
+    def forward_1d(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply embedding to a global (B, C) vector — use AFTER GAP.
+
+        This is the correct entry point for classification: pool the backbone
+        features first, then call this method once per image.  Calling the
+        spatial `forward` and pooling afterwards breaks the kernel
+        approximation because mean(φ(x_ij)) ≠ φ(mean(x_ij)).
+
+        Args:
+            x: (B, C) — globally pooled backbone features
+        Returns:
+            z: (B, p+q)
+        """
+        phi_pos = self.rff(x)                                          # (B, p)
+
+        x_norm = torch.nn.functional.normalize(x, p=2, dim=-1) if self.normalize_input else x
+        phi_neg = self.srf(x_norm)                                     # (B, q)
+
+        return torch.cat([phi_pos, phi_neg], dim=-1)                   # (B, p+q)
+
     def pontryagin_inner(self, u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         """Compute the indefinite Pontryagin inner product ⟨u, v⟩_J channel-wise.
 

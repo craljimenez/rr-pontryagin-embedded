@@ -265,12 +265,16 @@ class PontryaginConvNext(_ClsBase):
 
     Architecture:
         ConvNeXtV2-Tiny (forward_features) → (B, 768, H', W')
-        PontryaginEmbedding               → (B, p+q, H', W')
-        AdaptiveAvgPool2d(1) + flatten    → (B, p+q)
-        PontryaginMLR.logits              → (B, n_classes)
+        PontryaginEmbedding                → (B, p+q, H', W')
+        Independent GAP per subspace:
+            mean(φ_+_map, [H,W])           → (B, p)
+            mean(φ_−_map, [H,W])           → (B, q)
+        concat                             → (B, p+q)
+        PontryaginMLR.logits               → (B, n_classes)
 
-    For training, the full Pontryagin loss (CE + balance + topo) is applied on
-    the pooled (B, p+q) embeddings.
+    Pooling positive and negative maps independently preserves the J-structure:
+        ⟨W_y, z⟩_J = (1/HW) Σ_ij ⟨W_y, φ(x_ij)⟩_J
+    i.e. the class score is the spatial mean of per-pixel J-logits.
     """
 
     def __init__(
@@ -284,12 +288,11 @@ class PontryaginConvNext(_ClsBase):
         lambda_balance: float = LAMBDA_BALANCE,
     ) -> None:
         super().__init__()
-        # Backbone: spatial features only (no global pool, no head)
         self.backbone = timm.create_model(
             BACKBONE_NAME,
             pretrained=PRETRAINED,
             num_classes=0,
-            global_pool="",
+            global_pool="",          # keep spatial maps
         )
         n_rff  = int(rff_multiplier) * BACKBONE_OUT_CH
         n_srf  = int(kappa)
@@ -297,7 +300,7 @@ class PontryaginConvNext(_ClsBase):
             BACKBONE_OUT_CH, n_rff, n_srf, int(kappa),
             d_poly=int(d_poly), sigma=sigma,
         )
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        self._p = self.embed_layer.rff.out_features   # positive subspace dim
         self.head = PontryaginMLR(
             n_classes,
             self.embed_layer.out_channels,
@@ -309,10 +312,12 @@ class PontryaginConvNext(_ClsBase):
         self.n_classes = n_classes
 
     def _embed_global(self, x: torch.Tensor) -> torch.Tensor:
-        """Return (B, p+q) global Pontryagin embedding."""
-        feats  = self.backbone.forward_features(x)   # (B, 768, H', W')
-        z_map  = self.embed_layer(feats)              # (B, p+q, H', W')
-        return self.pool(z_map).flatten(1)            # (B, p+q)
+        """Independent GAP on positive and negative Pontryagin maps. Returns (B, p+q)."""
+        feats   = self.backbone.forward_features(x)          # (B, 768, H', W')
+        z_map   = self.embed_layer(feats)                     # (B, p+q, H', W')
+        phi_pos = z_map[:, :self._p].mean(dim=[2, 3])        # (B, p)
+        phi_neg = z_map[:, self._p:].mean(dim=[2, 3])        # (B, q)
+        return torch.cat([phi_pos, phi_neg], dim=1)           # (B, p+q)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head.logits(self._embed_global(x))
@@ -335,15 +340,8 @@ class PontryaginConvNext(_ClsBase):
 class PontryaginConvNextMargin(_ClsBase):
     """ConvNeXtV2-Tiny + PontryaginEmbedding + PontryaginMarginCLS.
 
-    Identical backbone and embedding to PontryaginConvNext.  The loss head
-    is replaced by PontryaginMarginCLS, which uses:
-        CE + L_balance_W + L_margin_proto + L_orth_W
-
-    Instead of the spatial topographic penalty this variant penalises:
-    - separation of batch class prototypes in J-pseudo-distance (L_margin_proto)
-    - J-orthogonality of classifier weight vectors W_y         (L_orth_W)
-    Both terms are motivated by the original Pontryagin MLR formulation and
-    are more natural for global (pooled) classification than spatial topology.
+    Same architecture as PontryaginConvNext (independent GAP per subspace).
+    The loss head uses CE + L_balance_W + L_margin_proto + L_orth_W.
     """
 
     def __init__(
@@ -363,7 +361,7 @@ class PontryaginConvNextMargin(_ClsBase):
             BACKBONE_NAME,
             pretrained=PRETRAINED,
             num_classes=0,
-            global_pool="",
+            global_pool="",          # keep spatial maps
         )
         n_rff = int(rff_multiplier) * BACKBONE_OUT_CH
         n_srf = int(kappa)
@@ -371,7 +369,7 @@ class PontryaginConvNextMargin(_ClsBase):
             BACKBONE_OUT_CH, n_rff, n_srf, int(kappa),
             d_poly=int(d_poly), sigma=sigma,
         )
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        self._p = self.embed_layer.rff.out_features
         self.head = PontryaginMarginCLS(
             n_classes,
             self.embed_layer.out_channels,
@@ -384,9 +382,11 @@ class PontryaginConvNextMargin(_ClsBase):
         self.n_classes = n_classes
 
     def _embed_global(self, x: torch.Tensor) -> torch.Tensor:
-        feats = self.backbone.forward_features(x)   # (B, 768, H', W')
-        z_map = self.embed_layer(feats)              # (B, p+q, H', W')
-        return self.pool(z_map).flatten(1)           # (B, p+q)
+        feats   = self.backbone.forward_features(x)          # (B, 768, H', W')
+        z_map   = self.embed_layer(feats)                     # (B, p+q, H', W')
+        phi_pos = z_map[:, :self._p].mean(dim=[2, 3])        # (B, p)
+        phi_neg = z_map[:, self._p:].mean(dim=[2, 3])        # (B, q)
+        return torch.cat([phi_pos, phi_neg], dim=1)           # (B, p+q)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head.logits(self._embed_global(x))
