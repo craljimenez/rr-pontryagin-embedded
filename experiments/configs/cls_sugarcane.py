@@ -38,10 +38,13 @@ BACKBONE_OUT_CH = 768   # channels of last ConvNeXt stage before global pool
 PRETRAINED      = True
 
 # ── Pontryagin-specific defaults ──────────────────────────────────────────────
-KAPPA          = 4
-D_POLY         = 2
+# srf_multiplier: fraction of BACKBONE_OUT_CH used as negative-subspace dimension.
+#   n_srf = kappa = max(1, round(srf_multiplier * BACKBONE_OUT_CH))
+#   e.g. 0.05 → 38 dims,  0.25 → 192 dims,  0.5 → 384 dims,  0.8 → 614 dims
+SRF_MULTIPLIER = 0.05
 RFF_MULTIPLIER = 1
 N_RFF          = RFF_MULTIPLIER * BACKBONE_OUT_CH
+D_POLY         = 2
 SIGMA          = 1.0
 LAMBDA_BALANCE = 0.1
 LAMBDA_TOPO    = 0.05
@@ -51,6 +54,10 @@ TOPO_KWARGS    = {"lambda_lc": 1.0, "lambda_cc": 0.5, "lambda_sb": 0.5, "lc_epsi
 LAMBDA_MARGIN  = 0.5    # weight for batch-prototype margin penalty
 LAMBDA_ORTH_W  = 0.1    # weight for J-orthogonality on classifier W
 MARGIN         = 1.0    # J-pseudo-distance margin m
+
+# ── derived (not tuned directly) ──────────────────────────────────────────────
+def n_srf_from_multiplier(srf_multiplier: float) -> int:
+    return max(1, round(srf_multiplier * BACKBONE_OUT_CH))
 
 # ── training ──────────────────────────────────────────────────────────────────
 DEVICE               = "cuda"

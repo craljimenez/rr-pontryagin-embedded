@@ -46,11 +46,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from configs.cls_sugarcane import (
     AVAILABLE_MODELS, BACKBONE_NAME, BACKBONE_OUT_CH, BATCH_SIZE, D_POLY,
-    DEVICE, EARLY_STOP_PATIENCE, EPOCHS, IMG_SIZE, KAPPA, LABEL_SMOOTHING,
+    DEVICE, EARLY_STOP_PATIENCE, EPOCHS, IMG_SIZE, LABEL_SMOOTHING,
     LAMBDA_BALANCE, LAMBDA_MARGIN, LAMBDA_ORTH_W, LAMBDA_TOPO, LR,
     LR_BACKBONE, LR_MIN, MARGIN, N_RFF, NUM_WORKERS, PRETRAINED, RESULTS_DIR,
-    RFF_MULTIPLIER, SEED, SIGMA, TEST_SPLIT, TOPO_KWARGS, VAL_SPLIT,
-    WEIGHT_DECAY,
+    RFF_MULTIPLIER, SEED, SIGMA, SRF_MULTIPLIER, TEST_SPLIT, TOPO_KWARGS,
+    VAL_SPLIT, WEIGHT_DECAY, n_srf_from_multiplier,
 )
 from prfe.layers.pontryagin import PontryaginEmbedding
 from prfe.losses.margin_cls import PontryaginMarginCLS
@@ -280,7 +280,7 @@ class PontryaginConvNext(_ClsBase):
     def __init__(
         self,
         n_classes: int,
-        kappa: int = KAPPA,
+        srf_multiplier: float = SRF_MULTIPLIER,
         d_poly: int = D_POLY,
         rff_multiplier: int = RFF_MULTIPLIER,
         sigma: float = SIGMA,
@@ -295,9 +295,9 @@ class PontryaginConvNext(_ClsBase):
             global_pool="",          # keep spatial maps
         )
         n_rff  = int(rff_multiplier) * BACKBONE_OUT_CH
-        n_srf  = int(kappa)
+        n_srf  = n_srf_from_multiplier(srf_multiplier)
         self.embed_layer = PontryaginEmbedding(
-            BACKBONE_OUT_CH, n_rff, n_srf, int(kappa),
+            BACKBONE_OUT_CH, n_rff, n_srf, n_srf,  # kappa = n_srf
             d_poly=int(d_poly), sigma=sigma,
         )
         self._p = self.embed_layer.rff.out_features   # positive subspace dim
@@ -307,6 +307,7 @@ class PontryaginConvNext(_ClsBase):
             self.embed_layer.J,
             lambda_topo=lambda_topo,
             lambda_balance=lambda_balance,
+            label_smoothing=LABEL_SMOOTHING,
             topo_kwargs=TOPO_KWARGS,
         )
         self.n_classes = n_classes
@@ -347,7 +348,7 @@ class PontryaginConvNextMargin(_ClsBase):
     def __init__(
         self,
         n_classes: int,
-        kappa: int = KAPPA,
+        srf_multiplier: float = SRF_MULTIPLIER,
         d_poly: int = D_POLY,
         rff_multiplier: int = RFF_MULTIPLIER,
         sigma: float = SIGMA,
@@ -364,9 +365,9 @@ class PontryaginConvNextMargin(_ClsBase):
             global_pool="",          # keep spatial maps
         )
         n_rff = int(rff_multiplier) * BACKBONE_OUT_CH
-        n_srf = int(kappa)
+        n_srf = n_srf_from_multiplier(srf_multiplier)
         self.embed_layer = PontryaginEmbedding(
-            BACKBONE_OUT_CH, n_rff, n_srf, int(kappa),
+            BACKBONE_OUT_CH, n_rff, n_srf, n_srf,  # kappa = n_srf
             d_poly=int(d_poly), sigma=sigma,
         )
         self._p = self.embed_layer.rff.out_features
@@ -378,6 +379,7 @@ class PontryaginConvNextMargin(_ClsBase):
             lambda_margin=lambda_margin,
             lambda_orth_W=lambda_orth_W,
             margin=margin,
+            label_smoothing=LABEL_SMOOTHING,
         )
         self.n_classes = n_classes
 
@@ -416,7 +418,7 @@ def build_cls_model(model_type: str, n_classes: int, params: dict | None = None)
     if model_type == "pontryagin":
         return PontryaginConvNext(
             n_classes=n_classes,
-            kappa=params.get("kappa", KAPPA),
+            srf_multiplier=params.get("srf_multiplier", SRF_MULTIPLIER),
             d_poly=params.get("d_poly", D_POLY),
             rff_multiplier=params.get("rff_multiplier", RFF_MULTIPLIER),
             sigma=params.get("sigma", SIGMA),
@@ -426,7 +428,7 @@ def build_cls_model(model_type: str, n_classes: int, params: dict | None = None)
     if model_type == "pontryagin_margin":
         return PontryaginConvNextMargin(
             n_classes=n_classes,
-            kappa=params.get("kappa", KAPPA),
+            srf_multiplier=params.get("srf_multiplier", SRF_MULTIPLIER),
             d_poly=params.get("d_poly", D_POLY),
             rff_multiplier=params.get("rff_multiplier", RFF_MULTIPLIER),
             sigma=params.get("sigma", SIGMA),
@@ -622,7 +624,8 @@ def train_one_model(
         lr=params.get("lr", LR),
         lr_backbone=params.get("lr_backbone", LR_BACKBONE),
     )
-    optimiser = torch.optim.AdamW(param_groups, weight_decay=WEIGHT_DECAY)
+    optimiser = torch.optim.AdamW(param_groups,
+                                  weight_decay=params.get("weight_decay", WEIGHT_DECAY))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimiser, T_max=epochs, eta_min=LR_MIN
     )

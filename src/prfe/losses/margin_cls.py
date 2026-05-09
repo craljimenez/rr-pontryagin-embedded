@@ -72,6 +72,7 @@ class PontryaginMarginCLS(nn.Module):
         lambda_margin: float = 0.5,
         lambda_orth_W: float = 0.1,
         margin: float = 1.0,
+        label_smoothing: float = 0.0,
         orth_delta: float = 1e-8,
     ) -> None:
         super().__init__()
@@ -80,6 +81,7 @@ class PontryaginMarginCLS(nn.Module):
         self.lambda_margin  = lambda_margin
         self.lambda_orth_W  = lambda_orth_W
         self.margin         = margin
+        self.label_smoothing = label_smoothing
         self.orth_delta     = orth_delta
 
         self.W = nn.Parameter(torch.randn(n_classes, in_features) * 0.02)
@@ -204,7 +206,9 @@ class PontryaginMarginCLS(nn.Module):
         Returns:
             scalar loss
         """
-        loss = F.cross_entropy(self.logits(z), labels, weight=self.class_weights)
+        loss = F.cross_entropy(self.logits(z), labels,
+                               weight=self.class_weights,
+                               label_smoothing=self.label_smoothing)
 
         if self.lambda_balance > 0:
             loss = loss + self.lambda_balance * self.balance_penalty_W()

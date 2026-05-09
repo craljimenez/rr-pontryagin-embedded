@@ -4,14 +4,18 @@ Optimises weighted F1 on the test set (same convention as tune_seg_uav_unet).
 
 Search spaces:
     euclidean   : lr, lr_backbone, weight_decay
-    pontryagin  : lr, lr_backbone, weight_decay,
-                  kappa, d_poly, rff_multiplier,
-                  lambda_topo, lambda_balance
+    pontryagin        : lr, lr_backbone, weight_decay,
+                        srf_multiplier, d_poly, rff_multiplier,
+                        lambda_topo, lambda_balance
+    pontryagin_margin : lr, lr_backbone, weight_decay,
+                        srf_multiplier, d_poly, rff_multiplier,
+                        lambda_balance, lambda_margin, lambda_orth_W, margin
 
 Usage:
-    python tune_cls_sugarcane.py --model pontryagin --n-calls 30 --trial-epochs 10
-    python tune_cls_sugarcane.py --model euclidean  --n-calls 20 --trial-epochs 10
-    python tune_cls_sugarcane.py --model all        --n-calls 30 --trial-epochs 10
+    python tune_cls_sugarcane.py --model pontryagin        --n-calls 30 --trial-epochs 10
+    python tune_cls_sugarcane.py --model pontryagin_margin --n-calls 30 --trial-epochs 10
+    python tune_cls_sugarcane.py --model euclidean         --n-calls 20 --trial-epochs 10
+    python tune_cls_sugarcane.py --model all               --n-calls 30 --trial-epochs 10
 """
 
 import argparse
@@ -53,9 +57,9 @@ _COMMON = [
 
 
 _PONTRYAGIN_ARCH = [
-    Integer(1, 32, prior="log-uniform", name="kappa"),
-    Integer(1,  6,                      name="d_poly"),
-    Integer(1,  4,                      name="rff_multiplier"),
+    Real(0.01, 0.8, prior="log-uniform", name="srf_multiplier"),
+    Integer(1,  6,                       name="d_poly"),
+    Integer(1,  4,                       name="rff_multiplier"),
     Real(1e-3, 1.0, prior="log-uniform", name="lambda_balance"),
 ]
 

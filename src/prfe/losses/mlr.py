@@ -66,12 +66,14 @@ class PontryaginMLR(nn.Module):
         lambda_topo: float = 0.05,
         lambda_balance: float = 0.1,
         cone_epsilon: float = 0.1,    # kept for API compatibility; ignored
+        label_smoothing: float = 0.0,
         topo_kwargs: dict | None = None,
     ) -> None:
         super().__init__()
         self.n_classes = n_classes
         self.lambda_topo = lambda_topo
         self.lambda_balance = lambda_balance
+        self.label_smoothing = label_smoothing
 
         self.W = nn.Parameter(torch.randn(n_classes, in_features) * 0.02)
         self.b = nn.Parameter(torch.zeros(n_classes))
@@ -143,7 +145,9 @@ class PontryaginMLR(nn.Module):
         Returns:
             scalar loss
         """
-        loss = F.cross_entropy(self.logits(z), labels, weight=self.class_weights)
+        loss = F.cross_entropy(self.logits(z), labels,
+                               weight=self.class_weights,
+                               label_smoothing=self.label_smoothing)
 
         if self.lambda_balance > 0:
             loss = loss + self.lambda_balance * self.balance_penalty_W()
