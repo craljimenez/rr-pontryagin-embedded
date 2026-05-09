@@ -50,7 +50,7 @@ from configs.cls_sugarcane import (
     LAMBDA_BALANCE, LAMBDA_MARGIN, LAMBDA_ORTH_W, LAMBDA_TOPO, LR,
     LR_BACKBONE, LR_MIN, MARGIN, N_RFF, NUM_WORKERS, PRETRAINED, RESULTS_DIR,
     RFF_MULTIPLIER, SEED, SIGMA, SRF_MULTIPLIER, TEST_SPLIT, TOPO_KWARGS,
-    VAL_SPLIT, WEIGHT_DECAY, n_srf_from_multiplier,
+    TRAINABLE_RFF, VAL_SPLIT, WEIGHT_DECAY, n_srf_from_multiplier,
 )
 from prfe.layers.pontryagin import PontryaginEmbedding
 from prfe.losses.margin_cls import PontryaginMarginCLS
@@ -286,6 +286,7 @@ class PontryaginConvNext(_ClsBase):
         sigma: float = SIGMA,
         lambda_topo: float = LAMBDA_TOPO,
         lambda_balance: float = LAMBDA_BALANCE,
+        trainable_rff: bool = TRAINABLE_RFF,
     ) -> None:
         super().__init__()
         self.backbone = timm.create_model(
@@ -297,8 +298,8 @@ class PontryaginConvNext(_ClsBase):
         n_rff  = int(rff_multiplier) * BACKBONE_OUT_CH
         n_srf  = n_srf_from_multiplier(srf_multiplier)
         self.embed_layer = PontryaginEmbedding(
-            BACKBONE_OUT_CH, n_rff, n_srf, n_srf,  # kappa = n_srf
-            d_poly=int(d_poly), sigma=sigma,
+            BACKBONE_OUT_CH, n_rff, n_srf, n_srf,
+            d_poly=int(d_poly), sigma=sigma, trainable=trainable_rff,
         )
         self._p = self.embed_layer.rff.out_features   # positive subspace dim
         self.head = PontryaginMLR(
@@ -356,6 +357,7 @@ class PontryaginConvNextMargin(_ClsBase):
         lambda_margin: float = LAMBDA_MARGIN,
         lambda_orth_W: float = LAMBDA_ORTH_W,
         margin: float = MARGIN,
+        trainable_rff: bool = TRAINABLE_RFF,
     ) -> None:
         super().__init__()
         self.backbone = timm.create_model(
@@ -367,8 +369,8 @@ class PontryaginConvNextMargin(_ClsBase):
         n_rff = int(rff_multiplier) * BACKBONE_OUT_CH
         n_srf = n_srf_from_multiplier(srf_multiplier)
         self.embed_layer = PontryaginEmbedding(
-            BACKBONE_OUT_CH, n_rff, n_srf, n_srf,  # kappa = n_srf
-            d_poly=int(d_poly), sigma=sigma,
+            BACKBONE_OUT_CH, n_rff, n_srf, n_srf,
+            d_poly=int(d_poly), sigma=sigma, trainable=trainable_rff,
         )
         self._p = self.embed_layer.rff.out_features
         self.head = PontryaginMarginCLS(
@@ -411,7 +413,12 @@ class PontryaginConvNextMargin(_ClsBase):
 # Factory
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_cls_model(model_type: str, n_classes: int, params: dict | None = None) -> _ClsBase:
+def build_cls_model(
+    model_type: str,
+    n_classes: int,
+    params: dict | None = None,
+    trainable_rff: bool = TRAINABLE_RFF,
+) -> _ClsBase:
     params = params or {}
     if model_type == "euclidean":
         return EuclideanConvNext(n_classes=n_classes)
@@ -424,6 +431,7 @@ def build_cls_model(model_type: str, n_classes: int, params: dict | None = None)
             sigma=params.get("sigma", SIGMA),
             lambda_topo=params.get("lambda_topo", LAMBDA_TOPO),
             lambda_balance=params.get("lambda_balance", LAMBDA_BALANCE),
+            trainable_rff=trainable_rff,
         )
     if model_type == "pontryagin_margin":
         return PontryaginConvNextMargin(
@@ -436,6 +444,7 @@ def build_cls_model(model_type: str, n_classes: int, params: dict | None = None)
             lambda_margin=params.get("lambda_margin", LAMBDA_MARGIN),
             lambda_orth_W=params.get("lambda_orth_W", LAMBDA_ORTH_W),
             margin=params.get("margin", MARGIN),
+            trainable_rff=trainable_rff,
         )
     raise ValueError(f"Unknown model type: {model_type!r}")
 
@@ -590,6 +599,13 @@ def save_sample_predictions(
 # Training loop
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _effective_name(model_type: str, trainable_rff: bool) -> str:
+    """Folder-safe model identifier including RFF trainability suffix."""
+    if trainable_rff and model_type != "euclidean":
+        return f"{model_type}_trff"
+    return model_type
+
+
 def train_one_model(
     model_type: str,
     data: dict,
@@ -599,6 +615,7 @@ def train_one_model(
     out_dir: Path | None = None,
     verbose: bool = True,
     save_viz: bool = True,
+    trainable_rff: bool = TRAINABLE_RFF,
 ) -> dict:
     """Train one classification model and save results.
 
@@ -606,18 +623,21 @@ def train_one_model(
     """
     params   = params or {}
     device   = device or torch.device(DEVICE if torch.cuda.is_available() else "cpu")
-    out_dir  = out_dir or (RESULTS_DIR / model_type)
+    run_name = _effective_name(model_type, trainable_rff)
+    out_dir  = out_dir or (RESULTS_DIR / run_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     viz_dir  = out_dir / "viz"
     viz_dir.mkdir(exist_ok=True)
 
     class_names = data["classes"]
     n_classes   = data["n_classes"]
-    model = build_cls_model(model_type, n_classes=n_classes, params=params).to(device)
+    model = build_cls_model(
+        model_type, n_classes=n_classes, params=params, trainable_rff=trainable_rff,
+    ).to(device)
 
     if verbose:
         n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"\n[{model_type.upper()}] trainable params: {n_params:,}")
+        print(f"\n[{run_name.upper()}] trainable params: {n_params:,}")
         print(f"  classes ({n_classes}): {class_names}")
 
     param_groups = model.param_groups(
@@ -753,6 +773,10 @@ def _parse():
                    help="Output directory (overrides config).")
     p.add_argument("--params", type=str, default=None,
                    help="JSON string or path to best_params.json.")
+    p.add_argument("--trainable-rff", action="store_true", default=False,
+                   help="Make RFF frequencies (W, b) learnable parameters. "
+                        "Results saved to <model>_trff/ subfolder. "
+                        "Note: breaks strict RFF kernel approximation guarantee.")
     return p.parse_args()
 
 
@@ -792,7 +816,10 @@ def main():
 
         train_one_model(
             mt, data=data, params=params, device=device,
-            epochs=args.epochs, out_dir=results_dir / mt, verbose=True,
+            epochs=args.epochs,
+            out_dir=results_dir / _effective_name(mt, args.trainable_rff),
+            verbose=True,
+            trainable_rff=args.trainable_rff,
         )
 
     print("\nAll done.")

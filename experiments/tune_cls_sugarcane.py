@@ -41,7 +41,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from configs.cls_sugarcane import AVAILABLE_MODELS, DEVICE, RESULTS_DIR
 from run_cls_sugarcane import (
-    _find_dataset_root, build_dataloaders, download_dataset, train_one_model,
+    _effective_name, _find_dataset_root, build_dataloaders,
+    download_dataset, train_one_model,
 )
 
 
@@ -92,6 +93,7 @@ def tune_model(
     n_calls: int,
     n_random: int,
     trial_epochs: int,
+    trainable_rff: bool = False,
 ):
     hpo_dir.mkdir(parents=True, exist_ok=True)
     space = search_space(model_type)
@@ -121,6 +123,7 @@ def tune_model(
             out_dir=hpo_dir / f"trial_{trial_count[0]:03d}",
             verbose=False,
             save_viz=False,
+            trainable_rff=trainable_rff,
         )
 
         score   = result["weighted_f1"]
@@ -213,6 +216,9 @@ def _parse():
                     help="Path to dataset root (downloads if omitted).")
     ap.add_argument("--results-dir",  type=str, default=None,
                     help="Output directory (overrides config).")
+    ap.add_argument("--trainable-rff", action="store_true", default=False,
+                    help="Make RFF frequencies learnable. "
+                         "HPO results saved to <model>_trff/hpo/.")
     return ap.parse_args()
 
 
@@ -244,7 +250,8 @@ def main():
         print(f"HPO for: {mt.upper()}")
         print(f"  n_calls={args.n_calls}  n_random={args.n_random}  "
               f"trial_epochs={args.trial_epochs}")
-        hpo_dir = results_dir / mt / "hpo"
+        run_name = _effective_name(mt, args.trainable_rff)
+        hpo_dir  = results_dir / run_name / "hpo"
         tune_model(
             model_type=mt,
             data=data,
@@ -253,6 +260,7 @@ def main():
             n_calls=args.n_calls,
             n_random=args.n_random,
             trial_epochs=args.trial_epochs,
+            trainable_rff=args.trainable_rff,
         )
 
     print("\nAll HPO done.")

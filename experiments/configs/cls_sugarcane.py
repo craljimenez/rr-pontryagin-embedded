@@ -37,6 +37,12 @@ BACKBONE_NAME   = "convnextv2_tiny.fcmae_ft_in22k_in1k"
 BACKBONE_OUT_CH = 768   # channels of last ConvNeXt stage before global pool
 PRETRAINED      = True
 
+# ── RFF trainability ──────────────────────────────────────────────────────────
+# trainable_rff=True makes W and b in RFF learnable (log_sigma is always learned).
+# NOTE: this breaks the strict kernel approximation guarantee of RFF but may
+# improve convergence.  Results are saved to a separate subfolder when enabled.
+TRAINABLE_RFF = False
+
 # ── Pontryagin-specific defaults ──────────────────────────────────────────────
 # srf_multiplier: fraction of BACKBONE_OUT_CH used as negative-subspace dimension.
 #   n_srf = kappa = max(1, round(srf_multiplier * BACKBONE_OUT_CH))
