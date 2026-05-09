@@ -63,7 +63,7 @@ def n_srf_from_multiplier(srf_multiplier: float) -> int:
 DEVICE               = "cuda"
 BATCH_SIZE           = 32
 NUM_WORKERS          = 4
-EPOCHS               = 30
+EPOCHS               = 100
 LR                   = 3e-4    # head / embedding learning rate
 LR_BACKBONE          = 3e-5   # discriminative lr for pretrained backbone
 LR_MIN               = 1e-6
