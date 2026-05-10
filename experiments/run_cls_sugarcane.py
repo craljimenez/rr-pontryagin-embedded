@@ -677,14 +677,16 @@ def train_one_model(
                 patience_cnt     = 0
                 torch.save({
                     "model_state_dict": model.state_dict(),
-                    "epoch":       epoch,
-                    "model_type":  model_type,
-                    "val_metrics": val_m,
-                    "params":      params,
-                    "classes":     class_names,
+                    "epoch":        epoch,
+                    "model_type":   model_type,
+                    "val_metrics":  val_m,
+                    "params":       params,
+                    "classes":      class_names,
+                    "trainable_rff": trainable_rff,
                 }, tmp_ckpt)
             else:
                 patience_cnt += 1
+
 
             if verbose and (epoch % 5 == 0 or epoch == 1):
                 print(f"  ep {epoch:3d}  loss={tr_loss:.4f}  "

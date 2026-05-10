@@ -1,23 +1,22 @@
 """Interpretability analysis for ConvNeXtV2-Tiny classification models.
 
-For each model (euclidean / pontryagin) and each test image produces:
+For each model and each test image produces:
   1. ScoreCAM figure (1×n_classes PDF) — per-class heatmaps overlaid on image.
-  2. LIME figure (1×2 PDF) — superpixel attribution for predicted class.
+  2. LIME figure (1×3 PDF) — superpixel attribution for predicted and true class.
 
-Additionally, for the Pontryagin model:
+Additionally, for any Pontryagin-family model (has embed_layer):
   3. Embedding energy figure (1×3 PDF) — positive / negative subspace energy maps.
 
-ScoreCAM target layer:
-  euclidean  : model.backbone.stages[-1]   (last ConvNeXt stage)
-  pontryagin : model.embed_layer           (PontryaginEmbedding output)
+ScoreCAM target layer: backbone.stages[-1] for ALL models.
 
-Outputs per model:
-  results/cls_sugarcane/<model>/scorecam/   — per-image PDFs + metrics.json
-  results/cls_sugarcane/<model>/lime/       — per-image PDFs + metrics.json
-  results/cls_sugarcane/<model>/embedding_energy/  (pontryagin only)
+Outputs per model (folder = effective model name, e.g. pontryagin_trff):
+  results/cls_sugarcane/<run_name>/scorecam/
+  results/cls_sugarcane/<run_name>/lime/
+  results/cls_sugarcane/<run_name>/embedding_energy/  (Pontryagin only)
 
 Usage:
     python interpretability_cls_sugarcane.py --model all
+    python interpretability_cls_sugarcane.py --model pontryagin --trainable-rff
     python interpretability_cls_sugarcane.py --model pontryagin --n-samples 20
 """
 
@@ -37,10 +36,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from configs.cls_sugarcane import (
-    AVAILABLE_MODELS, DEVICE, IMG_SIZE, RESULTS_DIR,
+    AVAILABLE_MODELS, DEVICE, IMG_SIZE, RESULTS_DIR, TRAINABLE_RFF,
 )
 from run_cls_sugarcane import (
-    SugarcaneLeafDataset, _find_dataset_root, _denorm,
+    SugarcaneLeafDataset, _effective_name, _find_dataset_root, _denorm,
     build_cls_model, download_dataset,
 )
 
@@ -70,24 +69,37 @@ _EVAL_TF = transforms.Compose([
 # Model loading
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_cls_model(model_type: str, results_dir: Path):
-    model_dir  = results_dir / model_type
-    ckpt_path  = model_dir / "best_model.pth"
+def load_cls_model(
+    model_type: str,
+    results_dir: Path,
+    trainable_rff: bool = TRAINABLE_RFF,
+):
+    """Load a saved checkpoint.
+
+    trainable_rff is read from the checkpoint if present (saved by train_one_model),
+    falling back to the CLI flag so old checkpoints still load correctly.
+    """
+    run_name  = _effective_name(model_type, trainable_rff)
+    model_dir = results_dir / run_name
+    ckpt_path = model_dir / "best_model.pth"
     if not ckpt_path.exists():
         raise FileNotFoundError(f"No checkpoint found: {ckpt_path}")
     try:
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     except (EOFError, RuntimeError) as e:
         raise FileNotFoundError(
-            f"Checkpoint for {model_type} is corrupt ({ckpt_path}): {e}"
+            f"Checkpoint for {run_name} is corrupt ({ckpt_path}): {e}"
         ) from e
-    class_names = ckpt["classes"]
-    n_classes   = len(class_names)
-    params      = ckpt.get("params", {})
-    model       = build_cls_model(model_type, n_classes=n_classes, params=params)
+    class_names   = ckpt["classes"]
+    n_classes     = len(class_names)
+    params        = ckpt.get("params", {})
+    trainable_rff = ckpt.get("trainable_rff", trainable_rff)  # prefer checkpoint value
+    model = build_cls_model(
+        model_type, n_classes=n_classes, params=params, trainable_rff=trainable_rff,
+    )
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
-    return model, class_names
+    return model, class_names, run_name
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -499,21 +511,25 @@ def analyse_model(
     results_dir: Path,
     n_samples: int | None,
     num_lime_samples: int,
+    trainable_rff: bool = TRAINABLE_RFF,
 ):
-    print(f"\n── {model_type.upper()} ConvNeXtV2 ──────────────────────────")
-    model, class_names = load_cls_model(model_type, results_dir)
+    print(f"\n── {_effective_name(model_type, trainable_rff).upper()} ConvNeXtV2 ──────────────────────────")
+    model, class_names, run_name = load_cls_model(
+        model_type, results_dir, trainable_rff=trainable_rff,
+    )
     model = model.to(device)
+    out_base = results_dir / run_name
 
     dataset = SugarcaneLeafDataset(root=data_root, split="test")
 
     print("  Running ScoreCAM…")
     scorecam_analysis(
-        model_type=model_type,
+        model_type=run_name,
         model=model,
         dataset=dataset,
         class_names=class_names,
         device=device,
-        out_dir=results_dir / model_type / "scorecam",
+        out_dir=out_base / "scorecam",
         n_samples=n_samples,
     )
 
@@ -523,19 +539,20 @@ def analyse_model(
         dataset=dataset,
         class_names=class_names,
         device=device,
-        out_dir=results_dir / model_type / "lime",
+        out_dir=out_base / "lime",
         n_samples=n_samples,
         num_lime_samples=num_lime_samples,
     )
 
-    if model_type == "pontryagin":
+    # Embedding energy: any model that has a Pontryagin embed_layer
+    if hasattr(model, "embed_layer"):
         print("  Running embedding energy…")
         embedding_energy_analysis(
             model=model,
             dataset=dataset,
             class_names=class_names,
             device=device,
-            out_dir=results_dir / model_type / "embedding_energy",
+            out_dir=out_base / "embedding_energy",
             n_samples=n_samples,
         )
 
@@ -559,6 +576,10 @@ def main():
                     help="Limit number of test images to analyse (all if omitted).")
     ap.add_argument("--lime-samples", type=int, default=1000,
                     help="Number of LIME perturbation samples (default 1000).")
+    ap.add_argument("--trainable-rff", action="store_true", default=False,
+                    help="Load the _trff variant of the Pontryagin model. "
+                         "Ignored for euclidean. Auto-detected from checkpoint "
+                         "when trainable_rff was saved there.")
     args = ap.parse_args()
 
     device      = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -583,6 +604,7 @@ def main():
                 results_dir=results_dir,
                 n_samples=args.n_samples,
                 num_lime_samples=args.lime_samples,
+                trainable_rff=args.trainable_rff,
             )
         except FileNotFoundError as e:
             print(f"  Skipping {mt}: {e}")
