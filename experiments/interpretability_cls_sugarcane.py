@@ -337,8 +337,8 @@ def lime_analysis(
             random_seed=42,
         )
 
-        # Figure: image | LIME for predicted class | LIME for true class
-        fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
+        # Figure: original | LIME superpixel attribution for predicted class
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
 
         axes[0].imshow(img_np)
         axes[0].set_xlabel(
@@ -346,19 +346,16 @@ def lime_analysis(
             fontsize=9,
         )
 
-        # Predicted-class LIME
         temp_pred, mask_pred = explanation.get_image_and_mask(
             pred, positive_only=False, num_features=10, hide_rest=False
         )
         axes[1].imshow(mark_boundaries(temp_pred / 255.0, mask_pred))
-        axes[1].set_xlabel(f"LIME — predicted: {class_names[pred]}", fontsize=9)
-
-        # True-class LIME (same as predicted if correct)
-        temp_true, mask_true = explanation.get_image_and_mask(
-            true_lbl, positive_only=False, num_features=10, hide_rest=False
+        axes[1].set_xlabel(
+            f"LIME — {class_names[pred]}\n"
+            r"$\bf{green}$: supports prediction   "
+            r"$\bf{red}$: contradicts prediction",
+            fontsize=9,
         )
-        axes[2].imshow(mark_boundaries(temp_true / 255.0, mask_true))
-        axes[2].set_xlabel(f"LIME — true: {class_names[true_lbl]}", fontsize=9)
 
         for ax in axes:
             ax.set_xticks([]); ax.set_yticks([])
