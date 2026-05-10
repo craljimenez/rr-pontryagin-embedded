@@ -144,7 +144,7 @@ class ClassScoreCAM:
             score  = torch.softmax(out, dim=1)[0, class_idx].item()
             scores.append(score)
 
-        weights = torch.tensor(scores, dtype=torch.float32)
+        weights = torch.tensor(scores, dtype=torch.float32, device=fmaps.device)
         total   = weights.sum()
         if total > 1e-8:
             weights = weights / total
