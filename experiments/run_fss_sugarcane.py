@@ -330,6 +330,7 @@ def run(
     data_root: Path | None = None,
     results_dir: Path | None = None,
     best_params: dict | None = None,
+    epochs: int = EPOCHS,
 ) -> None:
     """Train and evaluate one model variant.
 
@@ -339,6 +340,7 @@ def run(
         data_root:   path to UAV_segmantation root; overrides DATASET_ROOT
         results_dir: output directory; overrides RESULTS_DIR
         best_params: HPO-found hyperparameters; overrides config defaults
+        epochs:      training epochs; overrides EPOCHS from config
     """
     _data_root   = Path(data_root)   if data_root   is not None else DATASET_ROOT
     _results_dir = Path(results_dir) if results_dir is not None else RESULTS_DIR
@@ -406,7 +408,7 @@ def run(
         weight_decay=float(p.get("weight_decay", WEIGHT_DECAY)),
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimiser, T_max=EPOCHS, eta_min=LR_MIN
+        optimiser, T_max=epochs, eta_min=LR_MIN
     )
 
     # ── training loop ─────────────────────────────────────────────────────────
@@ -420,7 +422,7 @@ def run(
     patience_count = 0
     best_ckpt      = run_dir / "best_model.pth"
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, epochs + 1):
         t0        = time.time()
         train_loss = train_epoch(model, train_loader, loss_fn, optimiser, device)
         val_m      = eval_epoch(model, val_loader, device)
@@ -429,7 +431,7 @@ def run(
 
         lr_now = optimiser.param_groups[0]["lr"]
         print(
-            f"Ep {epoch:3d}/{EPOCHS}  loss={train_loss:.4f}  "
+            f"Ep {epoch:3d}/{epochs}  loss={train_loss:.4f}  "
             f"val_iou={val_m['iou']:.4f}  val_dice={val_m['dice']:.4f}  "
             f"lr={lr_now:.2e}  [{elapsed:.1f}s]"
         )
@@ -514,6 +516,10 @@ def main() -> None:
         "--results-dir", type=Path, default=None,
         help="Output directory; overrides RESULTS_DIR from config",
     )
+    parser.add_argument(
+        "--epochs", type=int, default=EPOCHS,
+        help=f"Training epochs (default: {EPOCHS})",
+    )
     args = parser.parse_args()
 
     _results_dir = args.results_dir or RESULTS_DIR
@@ -532,7 +538,8 @@ def main() -> None:
         run(m, args.k_shot,
             data_root=args.data_root,
             results_dir=args.results_dir,
-            best_params=best_params)
+            best_params=best_params,
+            epochs=args.epochs)
 
 
 if __name__ == "__main__":
