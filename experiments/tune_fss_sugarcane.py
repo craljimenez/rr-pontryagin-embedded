@@ -83,6 +83,7 @@ def tune_model(
     trial_epochs: int,
     n_episodes_train: int,
     n_episodes_val: int,
+    trainable_rff: bool = False,
 ) -> dict:
     hpo_dir.mkdir(parents=True, exist_ok=True)
     space = search_space(model_name)
@@ -115,6 +116,7 @@ def tune_model(
             save_viz=False,
             n_episodes_train=n_episodes_train,
             n_episodes_val=n_episodes_val,
+            trainable_rff=trainable_rff,
         )
 
         score   = result["val_iou"]
@@ -212,6 +214,8 @@ def _parse():
                     help="Path to UAV_segmantation root (overrides config).")
     ap.add_argument("--results-dir",  type=str, default=None,
                     help="Output directory (overrides config).")
+    ap.add_argument("--trainable-rff", action="store_true", default=False,
+                    help="Make RFF frequencies and phases learnable; appends '_trainable' to output folder.")
     return ap.parse_args()
 
 
@@ -228,7 +232,8 @@ def main():
         print(f"HPO for: {model_name.upper()}  ({args.k_shot}-shot)")
         print(f"  n_calls={args.n_calls}  n_random={args.n_random}  "
               f"trial_epochs={args.trial_epochs}")
-        hpo_dir = results_dir / f"{model_name}_{args.k_shot}shot" / "hpo"
+        suffix  = "_trainable" if args.trainable_rff else ""
+        hpo_dir = results_dir / f"{model_name}_{args.k_shot}shot{suffix}" / "hpo"
         tune_model(
             model_name=model_name,
             data_root=data_root,
@@ -240,6 +245,7 @@ def main():
             trial_epochs=args.trial_epochs,
             n_episodes_train=args.n_episodes_train,
             n_episodes_val=args.n_episodes_val,
+            trainable_rff=args.trainable_rff,
         )
 
     print("\nAll HPO done.")

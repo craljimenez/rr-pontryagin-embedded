@@ -149,6 +149,7 @@ def build_model(
     k_shot: int,
     device: torch.device,
     params: dict | None = None,
+    trainable_rff: bool = TRAINABLE_RFF,
 ):
     """Instantiate model + loss.
 
@@ -157,6 +158,7 @@ def build_model(
         Pontryagin: rff_multiplier (int, n_rff = mult × N_RFF),
                     srf_multiplier (int, n_srf = mult × N_SRF; also sets kappa),
                     sigma, lambda_cone, lambda_orth
+    trainable_rff: if True, W and b of the RFF layer are learned parameters.
     """
     p = params or {}
 
@@ -179,7 +181,7 @@ def build_model(
             n_srf=n_srf_eff,
             kappa=n_srf_eff,   # kappa must equal n_srf (negative subspace dim)
             sigma=p.get("sigma", SIGMA),
-            trainable_rff=TRAINABLE_RFF,
+            trainable_rff=trainable_rff,
         )
         loss_fn = PontryaginFSSLoss(
             J=model.J,
@@ -209,6 +211,7 @@ def train_one_model(
     save_viz: bool = False,
     n_episodes_train: int = N_EPISODES_TRAIN,
     n_episodes_val: int = N_EPISODES_VAL,
+    trainable_rff: bool = TRAINABLE_RFF,
 ) -> dict:
     """Single training run used by the HPO loop.
 
@@ -236,7 +239,8 @@ def train_one_model(
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    model, loss_fn = build_model(model_name, k_shot, device, params=params)
+    model, loss_fn = build_model(model_name, k_shot, device, params=params,
+                                 trainable_rff=trainable_rff)
     optimiser = torch.optim.AdamW(
         model.parameters(), lr=lr, weight_decay=weight_decay
     )
@@ -331,16 +335,18 @@ def run(
     results_dir: Path | None = None,
     best_params: dict | None = None,
     epochs: int = EPOCHS,
+    trainable_rff: bool = TRAINABLE_RFF,
 ) -> None:
     """Train and evaluate one model variant.
 
     Args:
-        model_name:  'euclidean' or 'pontryagin'
-        k_shot:      number of support images per episode
-        data_root:   path to UAV_segmantation root; overrides DATASET_ROOT
-        results_dir: output directory; overrides RESULTS_DIR
-        best_params: HPO-found hyperparameters; overrides config defaults
-        epochs:      training epochs; overrides EPOCHS from config
+        model_name:    'euclidean' or 'pontryagin'
+        k_shot:        number of support images per episode
+        data_root:     path to UAV_segmantation root; overrides DATASET_ROOT
+        results_dir:   output directory; overrides RESULTS_DIR
+        best_params:   HPO-found hyperparameters; overrides config defaults
+        epochs:        training epochs; overrides EPOCHS from config
+        trainable_rff: if True appends '_trainable' to the output folder name
     """
     _data_root   = Path(data_root)   if data_root   is not None else DATASET_ROOT
     _results_dir = Path(results_dir) if results_dir is not None else RESULTS_DIR
@@ -348,10 +354,12 @@ def run(
 
     device = torch.device(DEVICE if torch.cuda.is_available() else "cpu")
     print(f"\n{'='*60}")
-    print(f"Model: {model_name}  |  K-shot: {k_shot}  |  Device: {device}")
+    print(f"Model: {model_name}  |  K-shot: {k_shot}  |  Device: {device}"
+          + ("  |  trainable_rff=True" if trainable_rff else ""))
     print(f"{'='*60}")
 
-    run_dir = _results_dir / f"{model_name}_{k_shot}shot"
+    suffix  = "_trainable" if trainable_rff else ""
+    run_dir = _results_dir / f"{model_name}_{k_shot}shot{suffix}"
     run_dir.mkdir(parents=True, exist_ok=True)
     viz_dir = run_dir / "viz"
     viz_dir.mkdir(exist_ok=True)
@@ -396,7 +404,8 @@ def run(
     )
 
     # ── model ─────────────────────────────────────────────────────────────────
-    model, loss_fn = build_model(model_name, k_shot, device, params=best_params)
+    model, loss_fn = build_model(model_name, k_shot, device, params=best_params,
+                                 trainable_rff=trainable_rff)
     n_params = sum(param.numel() for param in model.parameters() if param.requires_grad)
     print(f"Trainable params: {n_params:,}")
     if best_params:
@@ -520,6 +529,10 @@ def main() -> None:
         "--epochs", type=int, default=EPOCHS,
         help=f"Training epochs (default: {EPOCHS})",
     )
+    parser.add_argument(
+        "--trainable-rff", action="store_true", default=False,
+        help="Make RFF frequencies and phases learnable parameters; appends '_trainable' to output folder",
+    )
     args = parser.parse_args()
 
     _results_dir = args.results_dir or RESULTS_DIR
@@ -539,7 +552,8 @@ def main() -> None:
             data_root=args.data_root,
             results_dir=args.results_dir,
             best_params=best_params,
-            epochs=args.epochs)
+            epochs=args.epochs,
+            trainable_rff=args.trainable_rff)
 
 
 if __name__ == "__main__":
