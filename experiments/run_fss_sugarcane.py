@@ -538,9 +538,10 @@ def main() -> None:
     _results_dir = args.results_dir or RESULTS_DIR
 
     models = list(AVAILABLE_MODELS) if args.model == "all" else [args.model]
+    suffix = "_trainable" if args.trainable_rff else ""
     for m in models:
         # Auto-load HPO best params if they exist
-        hpo_json = _results_dir / f"{m}_{args.k_shot}shot" / "hpo" / "best_params.json"
+        hpo_json = _results_dir / f"{m}_{args.k_shot}shot{suffix}" / "hpo" / "best_params.json"
         best_params = None
         if hpo_json.exists():
             best_params = {
