@@ -290,7 +290,16 @@ class PontryaginUNet(_UNetSegBase):
         return self.head.logits(z_flat)
 
     def _loss_spatial(self, z, labels):
-        return self.head.forward_spatial(z, labels)
+        # PontryaginMLR's topo penalty does F.one_hot(labels, ...) internally,
+        # which crashes on the -100 sentinel used for VOID_LABEL pixels (VOC
+        # images almost always have void border pixels, unlike the UAV
+        # dataset this architecture was written for). Filter them out here
+        # instead of going through forward_spatial's plain reshape.
+        B, D, H, W = z.shape
+        z_flat = z.permute(0, 2, 3, 1).reshape(B * H * W, D)
+        labels_flat = labels.reshape(B * H * W)
+        valid = labels_flat != -100
+        return self.head(z_flat[valid], labels_flat[valid])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
