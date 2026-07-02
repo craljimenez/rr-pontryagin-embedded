@@ -2,10 +2,11 @@
 
 Compares Euclidean vs Pontryagin on UAV Sugarcane test episodes:
 
-  1. GradCAM on query image — which backbone regions drive prototype similarity.
-     Prototype is computed with torch.no_grad() so gradients flow only through
-     the query encoding path.  Same target layer (last decoder block) for both
-     models → fair visual comparison.
+  1. ScoreCAM on query image — which backbone regions drive prototype similarity.
+     Gradient-free: each activation channel is used as a mask on the query; the
+     resulting model score (mean logit, prototype fixed) weights that channel.
+     Top-K channels by activation magnitude are evaluated for efficiency.
+     Same target layer (last decoder block) for both models → fair comparison.
 
   2. Pontryagin embedding energy per pixel:
        E_+(pixel) = || φ_+(pixel) ||²   (RFF / positive-definite channels)
@@ -21,19 +22,19 @@ Compares Euclidean vs Pontryagin on UAV Sugarcane test episodes:
   4. Cross-episode scatter — mean MC variance vs mean embedding energy
      (positive and negative) per episode, coloured by Pontryagin IoU.
 
-  5. CAM quality metrics (Otsu binarisation of each GradCAM):
+  5. CAM quality metrics (Otsu binarisation of each ScoreCAM):
        gt_iou, gt_recall, gt_precision, gt_pearson,
        mean_activation, coverage_top10pct
 
   6. Confidence-gain analysis (FSS adaptation):
-     The query is multiplied pixel-wise by the GradCAM and re-fed into the
+     The query is multiplied pixel-wise by the ScoreCAM and re-fed into the
      model (prototype fixed).  On GT-foreground pixels we compute:
        pct_change(i,j) = (P_masked − P_orig) / P_orig × 100
      A positive mean = the explanation highlights the features that drive
      foreground confidence.
 
 Outputs saved to  results/fss_sugarcane/interpretability_<k>shot[_trainable]/:
-  ep_NNN_comparison.pdf        Euclidean vs Pontryagin GradCAM + prediction
+  ep_NNN_comparison.pdf        Euclidean vs Pontryagin ScoreCAM + prediction
   ep_NNN_energy.pdf            energy maps + MC Dropout
   scatter_unc_vs_energy.pdf    aggregate scatter per episode
   iou_comparison.pdf           per-episode IoU bar chart
@@ -157,38 +158,34 @@ def _load_model(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GradCAM for FSS
+# ScoreCAM for FSS
 # ─────────────────────────────────────────────────────────────────────────────
 
-class FSSGradCAM:
-    """GradCAM applied to the query image of a few-shot episode.
+class FSSScoreCAM:
+    """ScoreCAM applied to the query image of a few-shot episode.
 
-    Target: last decoder block of the shared UNet backbone.
+    Gradient-free: each channel of the target activation map is upsampled and
+    normalised to [0, 1], used as a spatial mask on the query image, and fed
+    through the model with the prototype fixed.  The resulting mean logit score
+    is the channel weight.  Softmax of scores → weighted sum of activations →
+    ReLU → upsample → normalise.
 
-    Key design: prototype computation is wrapped in torch.no_grad() so that
-    the backward pass only traverses the query encoding path.  The forward
-    hook is overwritten by each backbone call, but since the query call happens
-    last (after prototype), self._features always holds the query activation
-    when backward() is called.
+    Only the top-max_channels channels (by mean |activation|) are scored for
+    efficiency.  Target: last decoder block of the shared UNet backbone.
     """
 
-    def __init__(self, model: nn.Module) -> None:
-        self.model      = model
-        self._features  = None
-        self._gradients = None
+    def __init__(self, model: nn.Module, max_channels: int = 64) -> None:
+        self.model        = model
+        self.max_channels = max_channels
+        self._features    = None
         target = model.backbone.dec_blocks[-1]
         self._fwd = target.register_forward_hook(self._fwd_hook)
-        self._bwd = target.register_full_backward_hook(self._bwd_hook)
 
     def _fwd_hook(self, module, inp, out):
-        self._features = out            # overwritten on every call → last = query
-
-    def _bwd_hook(self, module, grad_in, grad_out):
-        self._gradients = grad_out[0].detach()
+        self._features = out.detach()
 
     def remove(self):
         self._fwd.remove()
-        self._bwd.remove()
 
     def compute(
         self,
@@ -196,37 +193,73 @@ class FSSGradCAM:
         support_masks: torch.Tensor,  # (1, K, H, W)
         query_img:     torch.Tensor,  # (1, 3, H, W)
     ) -> np.ndarray:
-        """Return normalised [0, 1] GradCAM heatmap on the query image."""
+        """Return normalised [0, 1] ScoreCAM heatmap on the query image."""
+        H, W = query_img.shape[-2:]
         self.model.eval()
-        self._features = self._gradients = None
+        self._features = None
 
-        # Prototype: no gradients → backward hook fires only for query below
         with torch.no_grad():
             proto_fg, _ = self.model._prototypes(support_imgs, support_masks)
+            # Capture query activations (hook fires here, overwrites support ones)
+            _ = self.model.backbone(query_img)
 
-        # Query path: gradients enabled
-        if hasattr(self.model, "embed"):            # Pontryagin
-            q_feat = self.model.backbone(query_img)
-            q_emb  = self.model.embed(q_feat)
-            J      = self.model.J[None, :, None, None]
-            logits = (q_emb * proto_fg[:, :, None, None] * J).sum(dim=1)
-        else:                                        # Euclidean
-            q_feat = self.model.backbone(query_img)
-            q_norm = F.normalize(q_feat, dim=1)
-            p_norm = F.normalize(proto_fg, dim=1)[:, :, None, None]
-            logits = self.model.alpha * (q_norm * p_norm).sum(dim=1)
+        if self._features is None:
+            return np.zeros((H, W))
 
-        self.model.zero_grad()
-        logits.mean().backward()
+        features = self._features.clone()   # (1, C, H', W') — freeze before loop
+        C = features.shape[1]
 
-        if self._gradients is None or self._features is None:
-            return np.zeros(query_img.shape[-2:])
+        # ── Step 1: build predicted-FG mask using the model itself ───────────
+        # Mean-over-all-pixels is dominated by background (≥90% of image).
+        # Both channel selection and scoring are restricted to predicted-FG pixels
+        # so background channels cannot win by majority vote.
+        with torch.no_grad():
+            orig_logits = _logits_fixed_proto(self.model, proto_fg, query_img)  # (1,H,W)
+        pred_fg = (orig_logits[0] > 0)          # (H, W) bool — model's own FG mask
 
-        # alpha_k = global average of gradients; weighted sum of activations
-        alpha = self._gradients.mean(dim=(-2, -1), keepdim=True)   # (1, C, 1, 1)
-        cam   = F.relu((alpha * self._features.detach()).sum(dim=1))  # (1, H', W')
-        cam   = F.interpolate(cam.unsqueeze(1), size=query_img.shape[-2:],
-                              mode="bilinear", align_corners=False)[0, 0]
+        # ── Step 2: select top-K channels by mean activation INSIDE pred-FG ──
+        feats_up   = F.interpolate(features, size=(H, W),
+                                   mode="bilinear", align_corners=False)[0]  # (C,H,W)
+        if pred_fg.any():
+            importance = feats_up[:, pred_fg].mean(dim=1)   # (C,) — mean inside pred FG
+        else:
+            importance = features[0].abs().mean(dim=(-2, -1))
+        top_k   = min(self.max_channels, C)
+        top_idx = importance.topk(top_k).indices             # (top_k,)
+
+        # ── Step 3: baseline score restricted to pred-FG pixels ──────────────
+        with torch.no_grad():
+            base_logits = _logits_fixed_proto(
+                self.model, proto_fg, torch.zeros_like(query_img)
+            )[0]   # (H, W)
+        baseline_score = (base_logits[pred_fg].mean() if pred_fg.any()
+                          else base_logits.mean())
+
+        # ── Step 4: score each channel (FG-pixel delta from baseline) ─────────
+        scores = torch.zeros(top_k, device=features.device)
+        with torch.no_grad():
+            for i, c_idx in enumerate(top_idx):
+                act_up   = feats_up[c_idx]                   # already at (H, W)
+                lo, hi   = act_up.min(), act_up.max()
+                if hi - lo < 1e-8:
+                    continue
+                mask_ch  = (act_up - lo) / (hi - lo)
+                masked_q = query_img * mask_ch.unsqueeze(0).unsqueeze(0)
+                logits   = _logits_fixed_proto(self.model, proto_fg, masked_q)[0]  # (H,W)
+                fg_score = (logits[pred_fg].mean() if pred_fg.any() else logits.mean())
+                scores[i] = fg_score - baseline_score
+
+        # ── Step 5: ReLU weights — only FG-boosting channels contribute ───────
+        weights = F.relu(scores)
+        w_sum   = weights.sum()
+        if w_sum < 1e-8:                         # fallback: uniform weights
+            weights = torch.ones_like(weights) / top_k
+        else:
+            weights = weights / w_sum
+
+        top_acts = feats_up[top_idx]                         # (top_k, H, W)
+        cam      = (weights[:, None, None] * top_acts).sum(dim=0)   # (H, W)
+        cam      = F.relu(cam)
         return _norm01(cam.cpu().numpy())
 
 
@@ -239,15 +272,15 @@ def embedding_energy_fss(
     support_imgs:  torch.Tensor,    # (1, K, 3, H, W)
     support_masks: torch.Tensor,    # (1, K, H, W)
     query_img:     torch.Tensor,    # (1, 3, H, W)
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-pixel Pontryagin embedding energy decomposition.
 
+    Consistent with interpretability_cls_sugarcane and interpretability_unet:
+    energy = prototype-weighted projection ⟨proto, φ⟩, not raw squared norm.
+
     Returns (H, W) maps:
-        e_pos  : ||φ_+(pixel)||²              — RFF subspace energy
-        e_neg  : ||φ_-(pixel)||²              — SRF subspace energy
-        c_pos  : ⟨φ_+(pixel), proto_fg+⟩     — RFF contribution to logit
-        c_neg  : −⟨φ_-(pixel), proto_fg-⟩    — SRF contribution (sign flipped
-                                                so positive = supports FG)
+        e_pos  : ⟨proto_fg+, φ_+(pixel)⟩   — RFF subspace contribution
+        e_neg  : ⟨proto_fg-, φ_-(pixel)⟩   — SRF subspace contribution
     """
     p = model.embed.rff.out_features          # 2 * n_rff
 
@@ -259,14 +292,10 @@ def embedding_energy_fss(
     phi_pos = q_emb[:, :p]                   # (1, p, H, W)
     phi_neg = q_emb[:, p:]                   # (1, q, H, W)
 
-    e_pos = phi_pos.pow(2).sum(dim=1)[0].cpu().numpy()   # (H, W)
-    e_neg = phi_neg.pow(2).sum(dim=1)[0].cpu().numpy()   # (H, W)
+    e_pos = (phi_pos * proto_fg[:, :p, None, None]).sum(dim=1)[0].cpu().numpy()
+    e_neg = (phi_neg * proto_fg[:, p:, None, None]).sum(dim=1)[0].cpu().numpy()
 
-    # Contribution of each subspace to ⟨query, prototype⟩_J
-    c_pos =  (phi_pos * proto_fg[:, :p, None, None]).sum(dim=1)[0].cpu().numpy()
-    c_neg = -(phi_neg * proto_fg[:, p:, None, None]).sum(dim=1)[0].cpu().numpy()
-
-    return e_pos, e_neg, c_pos, c_neg
+    return e_pos, e_neg
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -349,7 +378,7 @@ def compute_confidence_gain_fss(
     cam:           np.ndarray,     # (H, W) normalised [0, 1]
     gt_mask:       np.ndarray,     # (H, W) binary float
 ) -> dict:
-    """% confidence change when the query is masked by the GradCAM.
+    """% confidence change when the query is masked by the ScoreCAM.
 
     Prototype is computed once from support images (deterministic).
     The masked query  x_exp = x_query * CAM  is fed into the model using the
@@ -424,16 +453,16 @@ def visualise_episode(
     iou_e = _iou(pred_e, gt)
     iou_p = _iou(pred_p, gt)
 
-    # ── GradCAM ──────────────────────────────────────────────────────────────
-    cam_euc  = FSSGradCAM(model_euc)
-    cam_pont = FSSGradCAM(model_pont)
+    # ── ScoreCAM ─────────────────────────────────────────────────────────────
+    cam_euc  = FSSScoreCAM(model_euc)
+    cam_pont = FSSScoreCAM(model_pont)
     heat_e = cam_euc.compute(sup_imgs, sup_masks, q_img)
     heat_p = cam_pont.compute(sup_imgs, sup_masks, q_img)
     cam_euc.remove()
     cam_pont.remove()
 
     # ── Pontryagin energy ─────────────────────────────────────────────────────
-    e_pos, e_neg, c_pos, c_neg = embedding_energy_fss(
+    e_pos, e_neg = embedding_energy_fss(
         model_pont, sup_imgs, sup_masks, q_img
     )
 
@@ -450,7 +479,7 @@ def visualise_episode(
     cg_p = compute_confidence_gain_fss(model_pont, sup_imgs, sup_masks, q_img, heat_p, gt)
 
     # ────────────────────────────────────────────────────────────────────────
-    # Figure 1: GradCAM comparison — GT shown as green contour on every panel
+    # Figure 1: ScoreCAM comparison — GT shown as green contour on every panel
     # Layout: [sup1..K (support mask contour)] [query] [cam_E] [pred_E] [cam_P] [pred_P]
     # ────────────────────────────────────────────────────────────────────────
     n_cols = K + 1 + 2 + 2   # sup + query + (cam_E, pred_E) + (cam_P, pred_P)
@@ -469,7 +498,7 @@ def visualise_episode(
 
     axes[col].imshow(_overlay(q_rgb, heat_e))
     _gt_contour(axes[col], gt)
-    axes[col].set_title("Euclidean\nGradCAM", fontsize=9); _axoff(axes[col]); col += 1
+    axes[col].set_title("Euclidean\nScoreCAM", fontsize=9); _axoff(axes[col]); col += 1
 
     axes[col].imshow(pred_e, cmap="gray", vmin=0, vmax=1)
     _gt_contour(axes[col], gt)
@@ -478,7 +507,7 @@ def visualise_episode(
 
     axes[col].imshow(_overlay(q_rgb, heat_p))
     _gt_contour(axes[col], gt)
-    axes[col].set_title("Pontryagin\nGradCAM", fontsize=9); _axoff(axes[col]); col += 1
+    axes[col].set_title("Pontryagin\nScoreCAM", fontsize=9); _axoff(axes[col]); col += 1
 
     axes[col].imshow(pred_p, cmap="gray", vmin=0, vmax=1)
     _gt_contour(axes[col], gt)
@@ -486,7 +515,7 @@ def visualise_episode(
     _axoff(axes[col])
 
     plt.suptitle(
-        f"Episode {episode_idx:03d} — GradCAM comparison  (green contour = GT)",
+        f"Episode {episode_idx:03d} — ScoreCAM comparison  (green contour = GT)",
         fontsize=10,
     )
     plt.tight_layout()
@@ -550,12 +579,12 @@ def visualise_episode(
 
     im_ep = axes_pont[3].imshow(_norm01(e_pos), cmap="Blues", vmin=0, vmax=1)
     _gt_contour(axes_pont[3], gt)
-    axes_pont[3].set_title(r"$\|\varphi_+\|^2$  (RFF energy)", fontsize=9)
+    axes_pont[3].set_title(r"$\langle\mathrm{proto}_+,\varphi_+\rangle$  (RFF energy)", fontsize=9)
     plt.colorbar(im_ep, ax=axes_pont[3], fraction=0.046, pad=0.04)
 
     im_en = axes_pont[4].imshow(_norm01(e_neg), cmap="Reds", vmin=0, vmax=1)
     _gt_contour(axes_pont[4], gt)
-    axes_pont[4].set_title(r"$\|\varphi_-\|^2$  (SRF energy)", fontsize=9)
+    axes_pont[4].set_title(r"$\langle\mathrm{proto}_-,\varphi_-\rangle$  (SRF energy)", fontsize=9)
     plt.colorbar(im_en, ax=axes_pont[4], fraction=0.046, pad=0.04)
 
     for ax in axes_pont:
@@ -595,7 +624,7 @@ def visualise_episode(
         "energy_neg_mean":          float(e_neg.mean()),
         "energy_pos_fg":            _safe_mean(e_pos, fg_mask),
         "energy_neg_fg":            _safe_mean(e_neg, fg_mask),
-        # ── GradCAM quality — Euclidean
+        # ── ScoreCAM quality — Euclidean
         "cam_euc_mean_activation":  cam_m_e.get("mean_activation", float("nan")),
         "cam_euc_coverage_top10":   cam_m_e.get("coverage_top10pct", float("nan")),
         "cam_euc_gt_iou":           cam_m_e.get("gt_iou",       float("nan")),
@@ -603,7 +632,7 @@ def visualise_episode(
         "cam_euc_gt_precision":     cam_m_e.get("gt_precision", float("nan")),
         "cam_euc_gt_pearson":       cam_m_e.get("gt_pearson",   float("nan")),
         "cam_euc_otsu_thresh":      cam_m_e.get("otsu_threshold", float("nan")),
-        # ── GradCAM quality — Pontryagin
+        # ── ScoreCAM quality — Pontryagin
         "cam_pont_mean_activation": cam_m_p.get("mean_activation", float("nan")),
         "cam_pont_coverage_top10":  cam_m_p.get("coverage_top10pct", float("nan")),
         "cam_pont_gt_iou":          cam_m_p.get("gt_iou",       float("nan")),
@@ -683,7 +712,7 @@ def plot_aggregate(rows: list[dict], out_dir: Path, k_shot: int, n_mc: int):
 
     sc0 = axes[0].scatter(e_pos, var_p, c=iou_p, cmap="RdYlGn",
                           alpha=0.75, s=45, edgecolors="k", linewidths=0.4)
-    axes[0].set_xlabel(r"Mean $\|\varphi_+\|^2$ per episode (RFF)", fontsize=10)
+    axes[0].set_xlabel(r"Mean $\langle\mathrm{proto}_+,\varphi_+\rangle$ per episode (RFF)", fontsize=10)
     axes[0].set_ylabel(f"Mean MC Dropout variance (Pontryagin, N={n_mc})", fontsize=10)
     axes[0].set_title("Uncertainty vs Positive Energy")
     r0 = _pearson(e_pos, var_p)
@@ -693,7 +722,7 @@ def plot_aggregate(rows: list[dict], out_dir: Path, k_shot: int, n_mc: int):
 
     sc1 = axes[1].scatter(e_neg, var_p, c=iou_p, cmap="RdYlGn",
                           alpha=0.75, s=45, edgecolors="k", linewidths=0.4)
-    axes[1].set_xlabel(r"Mean $\|\varphi_-\|^2$ per episode (SRF)", fontsize=10)
+    axes[1].set_xlabel(r"Mean $\langle\mathrm{proto}_-,\varphi_-\rangle$ per episode (SRF)", fontsize=10)
     axes[1].set_ylabel(f"Mean MC Dropout variance (Pontryagin, N={n_mc})", fontsize=10)
     axes[1].set_title("Uncertainty vs Negative Energy")
     r1 = _pearson(e_neg, var_p)
@@ -732,7 +761,7 @@ def plot_aggregate(rows: list[dict], out_dir: Path, k_shot: int, n_mc: int):
             m_e = vals_e[valid].mean(); m_p = vals_p[valid].mean()
             ax.set_title(f"{label}\nEuc={m_e:.3f}  Pont={m_p:.3f}", fontsize=9)
         ax.set_ylabel(label, fontsize=9)
-    plt.suptitle(f"GradCAM quality vs GT — {k_shot}-shot FSS", fontsize=11)
+    plt.suptitle(f"ScoreCAM quality vs GT — {k_shot}-shot FSS", fontsize=11)
     plt.tight_layout()
     fig.savefig(out_dir / "cam_metrics_comparison.pdf", dpi=150, format="pdf",
                 bbox_inches="tight")
@@ -798,8 +827,8 @@ def plot_aggregate(rows: list[dict], out_dir: Path, k_shot: int, n_mc: int):
     print(f"  Prediction IoU   — Euc: {iou_e.mean():.4f}±{iou_e.std():.4f}  "
           f"Pont: {iou_p.mean():.4f}±{iou_p.std():.4f}")
     print(f"  MC variance      — Euc: {var_e.mean():.4f}  Pont: {var_p.mean():.4f}")
-    print(f"  GradCAM GT-IoU   — Euc: {_nanmean(cam_eiou):.4f}  Pont: {_nanmean(cam_piou):.4f}")
-    print(f"  GradCAM Pearson  — Euc: {_nanmean(cam_epr):.4f}   Pont: {_nanmean(cam_ppr):.4f}")
+    print(f"  ScoreCAM GT-IoU  — Euc: {_nanmean(cam_eiou):.4f}  Pont: {_nanmean(cam_piou):.4f}")
+    print(f"  ScoreCAM Pearson — Euc: {_nanmean(cam_epr):.4f}   Pont: {_nanmean(cam_ppr):.4f}")
     print(f"  Conf gain (mean) — Euc: {_nanmean(cg_e_arr):.2f}%  "
           f"Pont: {_nanmean(cg_p_arr):.2f}%")
     print(f"  Pearson unc/E+   : {r0:.4f}")

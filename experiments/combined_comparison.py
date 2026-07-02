@@ -28,7 +28,7 @@ OUT  = BASE / "combined"
 OUT.mkdir(parents=True, exist_ok=True)
 
 MODELS  = ["euclidean", "hyperbolic", "pontryagin"]
-LABELS  = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic", "pontryagin": "Pontryagin"}
+LABELS  = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic", "pontryagin": "RFPE"}
 
 FCN_COLOR  = "#4C72B0"
 UNET_COLOR = "#DD8452"
@@ -139,13 +139,23 @@ def plot_seg_comparison():
     fcn_data  = {m: load_fcn_seg(m)  for m in MODELS}
     unet_data = {m: load_unet_seg(m) for m in MODELS}
 
-    n_metrics = len(SEG_KEYS)
-    fig, axes = plt.subplots(1, n_metrics, figsize=(4 * n_metrics, 4.5), sharey=False)
+    # 2-row layout: 3 on top, 2 centered on bottom
+    # Use a 6-column GridSpec so bottom plots span cols 1-2 and 3-4 (centered)
+    from matplotlib.gridspec import GridSpec
+    fig = plt.figure(figsize=(13, 9))
+    gs  = GridSpec(2, 6, figure=fig, hspace=0.38, wspace=0.35)
+    ax0 = fig.add_subplot(gs[0, 0:2])
+    ax1 = fig.add_subplot(gs[0, 2:4])
+    ax2 = fig.add_subplot(gs[0, 4:6])
+    ax3 = fig.add_subplot(gs[1, 1:3])   # centered: 1 col margin each side
+    ax4 = fig.add_subplot(gs[1, 3:5])
+    axes_flat = [ax0, ax1, ax2, ax3, ax4]
 
     bar_w = 0.32
     x     = np.array([0, 1, 2])
 
-    for ax, (key, label) in zip(axes, SEG_KEYS):
+    for i, (key, label) in enumerate(SEG_KEYS):
+        ax      = axes_flat[i]
         cls_key = SEG_CLASS_KEY[key]
 
         fcn_vals, fcn_errs   = [], []
@@ -176,19 +186,18 @@ def plot_seg_comparison():
                hatch="//")
 
         ax.set_xticks(x)
-        ax.set_xticklabels([LABELS[m] for m in MODELS], fontsize=9)
-        ax.set_ylabel(label, fontsize=9)
-        ax.set_title(label, fontsize=9, pad=4)
+        ax.set_xticklabels([LABELS[m] for m in MODELS], fontsize=10)
+        ax.set_ylabel(label, fontsize=10)
+        ax.set_title(label, fontsize=11, pad=5)
         ax.set_ylim(bottom=0, top=1.08)
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.2f}"))
-        if ax == axes[0]:
-            ax.legend(fontsize=8, loc="lower right")
+        if i == 0:
+            ax.legend(fontsize=9, loc="lower right")
 
     fig.suptitle("FCN vs UNet — Segmentation comparison (test set, error bars = std over classes)",
-                 fontsize=10, y=1.01)
-    plt.tight_layout()
+                 fontsize=11, y=1.02)
     out = OUT / "seg_comparison.pdf"
-    fig.savefig(out, dpi=150, format="pdf", bbox_inches="tight")
+    fig.savefig(out, dpi=200, format="pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved → {out}")
 
