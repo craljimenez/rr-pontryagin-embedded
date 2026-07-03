@@ -23,6 +23,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+try:
+    import timm
+except ImportError:
+    timm = None
+
 
 def _double_conv(in_ch: int, out_ch: int) -> nn.Sequential:
     return nn.Sequential(
@@ -107,5 +112,69 @@ class UNetBackbone(nn.Module):
                               mode="bilinear", align_corners=False)
             h = torch.cat([h, skip], dim=1)
             h = dec(h)
+
+        return self.proj(h)
+
+
+class PretrainedUNetBackbone(nn.Module):
+    """U-Net decoder over an ImageNet-pretrained timm encoder.
+
+    Unlike UNetBackbone (trained from scratch), this reuses ImageNet features
+    for the encoder path — important on small training sets (e.g. PASCAL
+    VOC's 1464-image official split) where a from-scratch encoder has too
+    little data to learn good low-level filters on its own.
+
+    The encoder is any timm model queried with `features_only=True`, which
+    returns 5 feature maps at strides [2, 4, 8, 16, 32] regardless of the
+    specific architecture (default: resnet34). The decoder mirrors them
+    symmetrically back up to the input resolution — same interface as
+    UNetBackbone: forward(x) -> (B, out_channels, H, W).
+    """
+
+    def __init__(
+        self,
+        out_channels: int = 64,
+        variant: str = "resnet34",
+        pretrained: bool = True,
+    ) -> None:
+        super().__init__()
+        if timm is None:
+            raise ImportError(
+                "timm is required for PretrainedUNetBackbone. Install with: pip install timm"
+            )
+        self.encoder = timm.create_model(
+            variant, pretrained=pretrained, features_only=True,
+        )
+        chs = self.encoder.feature_info.channels()   # e.g. [64, 64, 128, 256, 512]
+        if len(chs) != 5:
+            raise ValueError(
+                f"Expected 5 feature stages (strides 2/4/8/16/32) from {variant!r}, "
+                f"got {len(chs)}: {chs}"
+            )
+
+        self.dec4 = _double_conv(chs[4] + chs[3], chs[3])
+        self.dec3 = _double_conv(chs[3] + chs[2], chs[2])
+        self.dec2 = _double_conv(chs[2] + chs[1], chs[1])
+        self.dec1 = _double_conv(chs[1] + chs[0], chs[0])
+        self.dec0 = _double_conv(chs[0], chs[0])   # final upsample to full res, no skip left
+        self.proj = nn.Conv2d(chs[0], out_channels, kernel_size=1, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        s0, s1, s2, s3, s4 = self.encoder(x)   # strides 2, 4, 8, 16, 32
+
+        h = F.interpolate(s4, size=s3.shape[-2:], mode="bilinear", align_corners=False)
+        h = self.dec4(torch.cat([h, s3], dim=1))
+
+        h = F.interpolate(h, size=s2.shape[-2:], mode="bilinear", align_corners=False)
+        h = self.dec3(torch.cat([h, s2], dim=1))
+
+        h = F.interpolate(h, size=s1.shape[-2:], mode="bilinear", align_corners=False)
+        h = self.dec2(torch.cat([h, s1], dim=1))
+
+        h = F.interpolate(h, size=s0.shape[-2:], mode="bilinear", align_corners=False)
+        h = self.dec1(torch.cat([h, s0], dim=1))
+
+        h = F.interpolate(h, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        h = self.dec0(h)
 
         return self.proj(h)
