@@ -40,7 +40,10 @@ from run_seg_pascalvoc import build_dataloaders, train_one_model
 _COMMON = [
     Real(1e-5, 1e-2, prior="log-uniform", name="lr"),
     Real(1e-6, 1e-3, prior="log-uniform", name="weight_decay"),
-    Integer(3, 5, name="unet_depth"),
+    # unet_depth dropped: PRETRAINED_BACKBONE=True fixes the architecture to
+    # BACKBONE_VARIANT (resnet34), so depth isn't a free knob anymore.
+    # lr_backbone tunes the pretrained encoder's discriminative LR instead.
+    Real(1e-6, 1e-3, prior="log-uniform", name="lr_backbone"),
 ]
 
 

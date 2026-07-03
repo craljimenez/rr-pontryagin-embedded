@@ -41,7 +41,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms as T
 from torchvision.datasets import VOCSegmentation
@@ -50,18 +50,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from configs.seg_pascalvoc import (
-    AVAILABLE_MODELS, BACKBONE_OUT_CH, BATCH_SIZE, CLASS_NAMES,
-    CLASS_WEIGHTS, DATASET_ROOT, DEVICE, D_POLY, EARLY_STOP_PATIENCE, EPOCHS,
-    HYPERBOLIC_C, IMG_SIZE, KAPPA, LAMBDA_BALANCE, LAMBDA_TOPO, LR, LR_MIN,
-    N_CLASSES, N_RFF, NUM_WORKERS, RESULTS_DIR, RFF_MULTIPLIER, SEED, SIGMA,
-    TOPO_KWARGS, UNET_BASE_CH, UNET_DEPTH, VAL_TEST_SPLIT, VOC_YEAR,
+    AVAILABLE_MODELS, BACKBONE_OUT_CH, BACKBONE_VARIANT, BATCH_SIZE,
+    CLASS_NAMES, CLASS_WEIGHTS, DATASET_ROOT, DEVICE, D_POLY,
+    EARLY_STOP_PATIENCE, EPOCHS, HYPERBOLIC_C, IMG_SIZE, KAPPA,
+    LAMBDA_BALANCE, LAMBDA_TOPO, LR, LR_BACKBONE, LR_MIN, N_CLASSES, N_RFF,
+    NUM_WORKERS, PRETRAINED_BACKBONE, RESULTS_DIR, RFF_MULTIPLIER, SEED,
+    SIGMA, TOPO_KWARGS, UNET_BASE_CH, UNET_DEPTH, VAL_TEST_SPLIT, VOC_YEAR,
     VOID_LABEL, WEIGHT_DECAY,
 )
 
 from prfe.layers.pontryagin import PontryaginEmbedding
 from prfe.losses.mlr import PontryaginMLR
 from prfe.losses.hyperbolic_mlr import HyperbolicMLR
-from prfe.models.unet import UNetBackbone
+from prfe.models.unet import PretrainedUNetBackbone, UNetBackbone
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,8 +119,12 @@ class PascalVOCSegDataset(Dataset):
 
     def __getitem__(self, idx: int):
         img, mask = self._voc[self.indices[idx]]
-        img  = img.resize((self.img_size, self.img_size), Image.BILINEAR)
-        mask = mask.resize((self.img_size, self.img_size), Image.NEAREST)
+
+        if self.augment:
+            img, mask = _random_scale_crop(img, mask, self.img_size)
+        else:
+            img  = img.resize((self.img_size, self.img_size), Image.BILINEAR)
+            mask = mask.resize((self.img_size, self.img_size), Image.NEAREST)
 
         img_t  = _normalise(_to_tensor(img))
         mask_t = torch.from_numpy(np.array(mask, dtype=np.int64))
@@ -129,6 +134,38 @@ class PascalVOCSegDataset(Dataset):
             mask_t = mask_t.flip(-1)
 
         return img_t, mask_t
+
+
+def _random_scale_crop(img, mask, img_size: int, scale_range=(0.75, 1.5)):
+    """Random-scale + random-crop/pad to a fixed square — standard VOC
+    augmentation. A plain resize + flip (the old augmentation here) isn't
+    enough on only 1464 training images; this exposes the model to many
+    more effective object scales and positions per epoch.
+
+    Pads with VOID_LABEL (mask) / 0 (image) when the scaled image is
+    smaller than img_size, so padded pixels are naturally excluded from
+    the loss and metrics via the existing VOID_LABEL handling.
+    """
+    scale = float(torch.empty(1).uniform_(*scale_range))
+    new_size = max(1, int(round(img_size * scale)))
+    img  = img.resize((new_size, new_size), Image.BILINEAR)
+    mask = mask.resize((new_size, new_size), Image.NEAREST)
+
+    if new_size < img_size:
+        pad = img_size - new_size
+        pad_l = int(torch.randint(0, pad + 1, (1,)).item())
+        pad_t = int(torch.randint(0, pad + 1, (1,)).item())
+        pad_r, pad_b = pad - pad_l, pad - pad_t
+        img  = ImageOps.expand(img,  border=(pad_l, pad_t, pad_r, pad_b), fill=0)
+        mask = ImageOps.expand(mask, border=(pad_l, pad_t, pad_r, pad_b), fill=VOID_LABEL)
+    elif new_size > img_size:
+        max_off = new_size - img_size
+        off_x = int(torch.randint(0, max_off + 1, (1,)).item())
+        off_y = int(torch.randint(0, max_off + 1, (1,)).item())
+        img  = img.crop((off_x, off_y, off_x + img_size, off_y + img_size))
+        mask = mask.crop((off_x, off_y, off_x + img_size, off_y + img_size))
+
+    return img, mask
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,12 +181,19 @@ class _UNetSegBase(nn.Module):
 
     def __init__(self, unet_depth: int = UNET_DEPTH) -> None:
         super().__init__()
-        self.backbone = UNetBackbone(
-            in_channels=3,
-            out_channels=BACKBONE_OUT_CH,
-            base_ch=UNET_BASE_CH,
-            depth=unet_depth,
-        )
+        if PRETRAINED_BACKBONE:
+            self.backbone = PretrainedUNetBackbone(
+                out_channels=BACKBONE_OUT_CH,
+                variant=BACKBONE_VARIANT,
+                pretrained=True,
+            )
+        else:
+            self.backbone = UNetBackbone(
+                in_channels=3,
+                out_channels=BACKBONE_OUT_CH,
+                base_ch=UNET_BASE_CH,
+                depth=unet_depth,
+            )
 
     def _embed(self, feats: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
@@ -159,6 +203,19 @@ class _UNetSegBase(nn.Module):
 
     def _loss_spatial(self, z: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
+
+    def param_groups(self, lr: float = LR, lr_backbone: float = LR_BACKBONE):
+        """Discriminative LR: pretrained encoder moves slower than the
+        randomly-initialized decoder + head (standard fine-tuning practice —
+        a large LR on the encoder destroys the pretrained features before
+        the rest of the network has a chance to use them)."""
+        bb_params   = list(self.backbone.parameters())
+        bb_ids      = {id(p) for p in bb_params}
+        head_params = [p for p in self.parameters() if id(p) not in bb_ids]
+        return [
+            {"params": bb_params,   "lr": lr_backbone},
+            {"params": head_params, "lr": lr},
+        ]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         feats = self.backbone(x)                           # (B, C, H, W)
@@ -602,8 +659,10 @@ def train_one_model(
         print(f"\n[{model_type.upper()} UNet] trainable params: {n_params:,}")
 
     optimiser = torch.optim.Adam(
-        model.parameters(),
-        lr=params.get("lr", LR),
+        model.param_groups(
+            lr=params.get("lr", LR),
+            lr_backbone=params.get("lr_backbone", LR_BACKBONE),
+        ),
         weight_decay=params.get("weight_decay", WEIGHT_DECAY),
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(

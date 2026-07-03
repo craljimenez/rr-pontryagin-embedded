@@ -2,7 +2,8 @@
 
 Public multiclass benchmark used to test PRFE generalisation beyond the
 binary sugarcane-vs-background UAV segmentation task. Four models share the
-same UNetBackbone and dataset:
+same backbone and dataset (PretrainedUNetBackbone by default — see
+PRETRAINED_BACKBONE below):
     vanilla     — standard UNet + CE (no class weights)
     euclidean   — UNet + class-weighted CE (linear head)
     hyperbolic  — UNet + Poincaré-ball MLR
@@ -45,7 +46,18 @@ CLASS_NAMES = [
 CLASS_WEIGHTS = [1.0] * N_CLASSES
 
 # ── UNet backbone ─────────────────────────────────────────────────────────────
-BACKBONE_OUT_CH = 64    # output channels of UNetBackbone (fed to embedding)
+BACKBONE_OUT_CH = 64    # output channels of the backbone (fed to embedding)
+
+# PRETRAINED_BACKBONE=True swaps UNetBackbone (from-scratch) for
+# PretrainedUNetBackbone (timm ImageNet-pretrained encoder + from-scratch
+# decoder). Matters a lot here: VOC's official train split is only 1464
+# images, too little to learn good low-level filters from scratch — unlike
+# the from-scratch UNetBackbone this pipeline was designed for on the UAV
+# sugarcane dataset. Set False to fall back to the from-scratch encoder.
+PRETRAINED_BACKBONE = True
+BACKBONE_VARIANT    = "resnet34"   # any timm model name valid for features_only=True
+
+# Only used when PRETRAINED_BACKBONE=False (from-scratch UNetBackbone).
 UNET_BASE_CH    = 64    # first encoder stage channels; doubles each stage
 UNET_DEPTH      = 4     # encoder/decoder stages (3–5)
 
@@ -68,7 +80,12 @@ DEVICE               = "cuda"
 BATCH_SIZE           = 8
 NUM_WORKERS          = 4
 EPOCHS               = 60
-LR                   = 1e-3
+LR                   = 1e-3    # decoder + head learning rate
+# Discriminative LR for the pretrained encoder — a fresh decoder/head next to
+# frozen-scale ImageNet features needs the encoder to move much more slowly,
+# or early large gradients wreck the pretrained filters (catastrophic
+# forgetting). Ignored when PRETRAINED_BACKBONE=False (backbone uses LR).
+LR_BACKBONE          = 1e-4
 LR_MIN               = 1e-5
 WEIGHT_DECAY         = 1e-4
 EARLY_STOP_PATIENCE  = 15
