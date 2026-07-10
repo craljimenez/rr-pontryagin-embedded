@@ -1,11 +1,11 @@
 """generate_fss_episode_fig.py
 
 Regenera Figure 4.10: panel de episodio FSS en layout 2×3 con títulos
-normalizados (RFPE en lugar de Pontryagin) y 300 DPI PDF.
+normalizados (PRFE en lugar de Pontryagin) y 300 DPI PDF.
 
 Layout 2×3:
-  Row 0: Support 1  | FSS-Euclidean ScoreCAM      | FSS-RFPE ScoreCAM
-  Row 1: Query      | FSS-Euclidean Prediction     | FSS-RFPE Prediction
+  Row 0: Support 1  | FSS-Euclidean ScoreCAM      | FSS-PRFE ScoreCAM
+  Row 1: Query      | FSS-Euclidean Prediction     | FSS-PRFE Prediction
 
 Usage:
     python experiments/generate_fss_episode_fig.py [--episode 1] [--k-shot 1]
@@ -51,8 +51,8 @@ def make_2x3_figure(
     out_path,
 ):
     """
-    Row 0: Support 1  | FSS-Euclidean ScoreCAM  | FSS-RFPE ScoreCAM
-    Row 1: Query      | FSS-Euclidean Prediction | FSS-RFPE Prediction
+    Row 0: Support 1  | FSS-Euclidean ScoreCAM  | FSS-PRFE ScoreCAM
+    Row 1: Query      | FSS-Euclidean Prediction | FSS-PRFE Prediction
     """
     fig, axes = plt.subplots(
         2, 3,
@@ -73,7 +73,7 @@ def make_2x3_figure(
 
     axes[0, 2].imshow(_overlay(q_rgb, heat_p))
     _gt_contour(axes[0, 2], gt)
-    axes[0, 2].set_title("FSS-RFPE\nScoreCAM", fontsize=11, fontweight="bold")
+    axes[0, 2].set_title("FSS-PRFE\nScoreCAM", fontsize=11, fontweight="bold")
     _axoff(axes[0, 2])
 
     # ── Row 1 ────────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ def make_2x3_figure(
     axes[1, 2].imshow(pred_p, cmap="gray", vmin=0, vmax=1)
     _gt_contour(axes[1, 2], gt)
     axes[1, 2].set_title(
-        f"FSS-RFPE Prediction\nIoU = {iou_p:.3f}",
+        f"FSS-PRFE Prediction\nIoU = {iou_p:.3f}",
         fontsize=11, fontweight="bold",
     )
     _axoff(axes[1, 2])
@@ -154,7 +154,7 @@ def main():
 
         iou_e = _iou(pred_e, gt)
         iou_p = _iou(pred_p, gt)
-        print(f"  IoU — Euclidean: {iou_e:.3f}   RFPE: {iou_p:.3f}")
+        print(f"  IoU — Euclidean: {iou_e:.3f}   PRFE: {iou_p:.3f}")
 
         print("  Computing ScoreCAM …")
         cam_euc  = FSSScoreCAM(model_euc)

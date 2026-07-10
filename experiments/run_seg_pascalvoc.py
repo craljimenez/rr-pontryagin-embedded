@@ -320,6 +320,7 @@ class PontryaginUNet(_UNetSegBase):
         lambda_topo: float = LAMBDA_TOPO,
         lambda_balance: float = LAMBDA_BALANCE,
         unet_depth: int = UNET_DEPTH,
+        trainable_rff: bool = False,
     ) -> None:
         super().__init__(unet_depth=unet_depth)
         n_rff = int(rff_multiplier) * BACKBONE_OUT_CH
@@ -328,7 +329,7 @@ class PontryaginUNet(_UNetSegBase):
         self.d_poly = d_poly
         self.embed_layer = PontryaginEmbedding(
             BACKBONE_OUT_CH, n_rff, n_srf, int(kappa),
-            d_poly=int(d_poly), sigma=sigma,
+            d_poly=int(d_poly), sigma=sigma, trainable=trainable_rff,
         )
         self.head = PontryaginMLR(
             N_CLASSES,
@@ -392,6 +393,7 @@ def build_unet_model(model_type: str, params: dict | None = None) -> _UNetSegBas
             lambda_topo=params.get("lambda_topo", LAMBDA_TOPO),
             lambda_balance=params.get("lambda_balance", LAMBDA_BALANCE),
             unet_depth=unet_depth,
+            trainable_rff=params.get("trainable_rff", False),
         )
     raise ValueError(f"Unknown model type: {model_type!r}")
 
@@ -648,7 +650,13 @@ def train_one_model(
     params   = params or {}
     device   = device or torch.device(DEVICE if torch.cuda.is_available() else "cpu")
     data     = data or build_dataloaders()
-    out_dir  = out_dir or (RESULTS_DIR / model_type)
+    if out_dir is None:
+        # Guard against a tRFF run silently overwriting the fixed-RFF
+        # checkpoint/metrics when called without an explicit out_dir (both
+        # CLI entrypoints below always pass one — this only protects
+        # direct/programmatic calls to train_one_model).
+        default_name = f"{model_type}_trff" if params.get("trainable_rff") else model_type
+        out_dir = RESULTS_DIR / default_name
     out_dir.mkdir(parents=True, exist_ok=True)
     viz_dir  = out_dir / "viz"
     viz_dir.mkdir(exist_ok=True)
@@ -762,6 +770,10 @@ def _parse():
                    help="Path to VOCdevkit root (downloads via torchvision if omitted).")
     p.add_argument("--results-dir", type=str, default=None,
                    help="Output directory for results (overrides config).")
+    p.add_argument("--trainable-rff", action="store_true",
+                   help="Pontryagin only: make the RFF bandwidth sigma a "
+                        "learnable scalar (tRFF). Results are written to "
+                        "'<model>_trff' instead of '<model>'.")
     return p.parse_args()
 
 
@@ -778,8 +790,17 @@ def main():
 
     models = list(AVAILABLE_MODELS) if args.model == "all" else [args.model]
 
+    if args.trainable_rff and any(mt != "pontryagin" for mt in models):
+        raise ValueError("--trainable-rff only applies to model_type='pontryagin'")
+
     for mt in models:
         params = {}
+        # tRFF has its own HPO params directory ('pontryagin_trff') if one
+        # exists; otherwise fall back to the fixed-RFF run's best_params.json
+        # as a starting point (kappa/d_poly/rff_multiplier/lr/lr_backbone are
+        # architecture/optimisation hyperparameters that transfer regardless
+        # of whether sigma is fixed or learned).
+        run_name = f"{mt}_trff" if (mt == "pontryagin" and args.trainable_rff) else mt
         if args.params:
             src = Path(args.params)
             if src.exists():
@@ -788,15 +809,20 @@ def main():
             else:
                 params = json.loads(args.params)
         else:
-            hpo_path = results_dir / mt / "hpo" / "best_params.json"
+            hpo_path = results_dir / run_name / "hpo" / "best_params.json"
+            if not hpo_path.exists():
+                hpo_path = results_dir / mt / "hpo" / "best_params.json"
             if hpo_path.exists():
                 with open(hpo_path) as f:
                     params = json.load(f)
-                print(f"  Loaded HPO params for {mt}: {hpo_path}")
+                print(f"  Loaded HPO params for {run_name}: {hpo_path}")
+
+        if mt == "pontryagin" and args.trainable_rff:
+            params["trainable_rff"] = True
 
         train_one_model(
             mt, params=params, data=data, device=device,
-            epochs=args.epochs, out_dir=results_dir / mt, verbose=True,
+            epochs=args.epochs, out_dir=results_dir / run_name, verbose=True,
         )
 
     print("\nAll done.")

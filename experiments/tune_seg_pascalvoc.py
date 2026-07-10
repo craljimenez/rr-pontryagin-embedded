@@ -9,6 +9,7 @@ Search spaces:
 
 Usage:
     python tune_seg_pascalvoc.py --model pontryagin --n-calls 30 --trial-epochs 12
+    python tune_seg_pascalvoc.py --model pontryagin --trainable-rff --n-calls 30 --trial-epochs 12
 """
 
 import argparse
@@ -80,12 +81,23 @@ def main():
                     help="Path to VOCdevkit root (downloads via torchvision if omitted).")
     ap.add_argument("--results-dir",  type=str, default=None,
                     help="Output directory for results (overrides config).")
+    ap.add_argument("--trainable-rff", action="store_true",
+                    help="Pontryagin only: search with the RFF bandwidth "
+                         "sigma as a learnable scalar (tRFF) instead of "
+                         "fixed. Results go to '<model>_trff/hpo' instead "
+                         "of '<model>/hpo' — a separate HPO run, not a "
+                         "search dimension, since it changes the loss "
+                         "landscape rather than a single hyperparameter.")
     args = ap.parse_args()
+
+    if args.trainable_rff and args.model != "pontryagin":
+        raise ValueError("--trainable-rff only applies to model='pontryagin'")
 
     from pathlib import Path as _Path
     results_dir = _Path(args.results_dir) if args.results_dir else RESULTS_DIR
-    device  = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    hpo_dir = results_dir / args.model / "hpo"
+    device    = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    run_name  = f"{args.model}_trff" if args.trainable_rff else args.model
+    hpo_dir   = results_dir / run_name / "hpo"
     hpo_dir.mkdir(parents=True, exist_ok=True)
 
     data  = build_dataloaders(data_root=args.data_root)
@@ -105,6 +117,8 @@ def main():
         print(f"\n── Trial {trial_count[0]} ──────────────────────────")
         print("  params:", {k: round(v, 6) if isinstance(v, float) else v
                             for k, v in params.items()})
+        if args.trainable_rff:
+            params["trainable_rff"] = True
         result = train_one_model(
             args.model,
             params=params,
@@ -154,7 +168,7 @@ def main():
 
     fig, ax = plt.subplots(figsize=(8, 4))
     plot_convergence(result, ax=ax)
-    ax.set_title(f"HPO convergence — UNet {args.model} (PASCAL VOC)")
+    ax.set_title(f"HPO convergence — UNet {run_name} (PASCAL VOC)")
     fig.tight_layout()
     fig.savefig(hpo_dir / "convergence.png", dpi=120)
     plt.close(fig)

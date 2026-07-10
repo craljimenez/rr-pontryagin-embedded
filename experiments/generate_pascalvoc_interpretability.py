@@ -1,11 +1,11 @@
-"""PASCAL VOC 2012 — qualitative comparison + Pontryagin relevance analysis.
+"""PASCAL VOC 2012 — qualitative comparison + PRFE relevance analysis.
 
 Mirrors the UAV analysis (generate_energy_gt.py) on the multiclass VOC
 pipeline (run_seg_pascalvoc.py):
 
-  1. Qualitative figure  — Image | GT | Euclidean | Hyperbolic | Pontryagin
+  1. Qualitative figure  — Image | GT | Euclidean | Hyperbolic | PRFE
      on representative test images (VOC devkit palette).
-  2. Energy figures      — for the Pontryagin head: RGB+GT contour,
+  2. Energy figures      — for the PRFE head: RGB+GT contour,
      MC Dropout predictive entropy, E+ (RFF) and E- (SRF) maps for the
      dominant foreground class.
   3. Quantitative relevance — over a test subsample: per-image Pearson
@@ -53,7 +53,7 @@ FIG_DIR = EXP_DIR / "report" / "figures"
 
 HEADS   = ["euclidean", "hyperbolic", "pontryagin"]
 LABELS  = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic",
-           "pontryagin": "Pontryagin"}
+           "pontryagin": "PRFE"}
 PALETTE = _voc_colormap()
 
 N_MC   = 30
@@ -213,10 +213,10 @@ def qualitative_figure(models, dataset, device, n_show=4):
             pred = m(inp).argmax(1)[0].cpu().numpy()
             mious[h] = per_image_miou(pred, gt)
         scores.append((i, mious))
-    # spread = pontryagin advantage over the euclidean baseline
+    # spread = PRFE advantage over the euclidean baseline
     scores.sort(key=lambda s: s[1]["pontryagin"] - s[1]["euclidean"],
                 reverse=True)
-    # 3 images where Pontryagin wins + the median image (typical behaviour)
+    # 3 images where PRFE wins + the median image (typical behaviour)
     chosen = [s[0] for s in scores[:n_show - 1]]
     chosen.append(scores[len(scores) // 2][0])
 
@@ -259,7 +259,7 @@ def qualitative_figure(models, dataset, device, n_show=4):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Energy figures (Pontryagin head)
+# 2. Energy figures (PRFE head)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def energy_figure(model, mc_model, dataset, idx, out_path, device):

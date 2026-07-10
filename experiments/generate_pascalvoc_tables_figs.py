@@ -31,7 +31,7 @@ TAB_DIR  = EXP_DIR / "report" / "tables"
 
 HEADS  = ["euclidean", "hyperbolic", "pontryagin"]
 LABELS = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic",
-          "pontryagin": "Pontryagin"}
+          "pontryagin": "PRFE"}
 # Paleta categórica validada (dataviz): azul / aqua / naranja
 COLORS = {"euclidean": "#2a78d6", "hyperbolic": "#1baf7a",
           "pontryagin": "#eb6834"}

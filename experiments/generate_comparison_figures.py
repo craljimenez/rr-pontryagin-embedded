@@ -1,8 +1,8 @@
 """
 generate_comparison_figures.py
 
-Carga Euclidean, RFPE y RFPE-tRFF sobre las MISMAS imágenes del test set,
-encuentra casos donde Euclidean falla y RFPE-tRFF acierta, y genera
+Carga Euclidean, PRFE y PRFE-tRFF sobre las MISMAS imágenes del test set,
+encuentra casos donde Euclidean falla y PRFE-tRFF acierta, y genera
 figuras comparativas ScoreCAM y LIME side-by-side (4 columnas).
 
 Uso:
@@ -89,7 +89,7 @@ def overlay_lime(img_np, mask):
 
 # ─────────────────────────────────────────────────────────────────────────────
 def find_cases(dataset, euc_model, rfpe_model, trff_model, device, n_scan, n_cases):
-    """Find cases where Euclidean fails and RFPE-tRFF predicts correctly."""
+    """Find cases where Euclidean fails and PRFE-tRFF predicts correctly."""
     cases = []
     for i in range(min(n_scan, len(dataset))):
         img_t, true_lbl = dataset[i]
@@ -151,8 +151,8 @@ def make_scorecam_figure(cases, classes, device, out_path, paper_mode=False):
         for col, (title, cam, correct) in enumerate([
             (f"Original — True: {true_c}",             None,     None),
             (f"Euclidean\n✗ Predicted: {euc_c}",        cam_euc,  False),
-            (f"RFPE\n{rfpe_symbol} {rfpe_label}",        cam_rfpe, rfpe_correct),
-            (f"RFPE-tRFF\n✓ Correct: {true_c}",         cam_trff, True),
+            (f"PRFE\n{rfpe_symbol} {rfpe_label}",        cam_rfpe, rfpe_correct),
+            (f"PRFE-tRFF\n✓ Correct: {true_c}",         cam_trff, True),
         ]):
             ax = axes[row][col]
             ax.imshow(img_np)
@@ -170,9 +170,9 @@ def make_scorecam_figure(cases, classes, device, out_path, paper_mode=False):
     fig.legend(
         handles=[
             mpatches.Patch(facecolor="white", edgecolor="#27ae60", linewidth=lw - 0.5,
-                           label="Correct — RFPE / RFPE-tRFF"),
+                           label="Correct — PRFE / PRFE-tRFF"),
             mpatches.Patch(facecolor="white", edgecolor="#c0392b", linewidth=lw - 0.5,
-                           label="Wrong — Euclidean / RFPE"),
+                           label="Wrong — Euclidean / PRFE"),
         ],
         loc="lower center", ncol=2, fontsize=fs_legend,
         frameon=True, bbox_to_anchor=(0.5, -0.04 if paper_mode else -0.02),
@@ -210,8 +210,8 @@ def make_lime_figure(cases, classes, device, out_path):
         for col, (title, overlay, correct) in enumerate([
             (f"Original — True: {true_c}",         img_np,                       None),
             (f"Euclidean\n✗ Predicted: {euc_c}",    overlay_lime(img_np, mask_euc),  False),
-            (f"RFPE\n{rfpe_symbol} {rfpe_label}",   overlay_lime(img_np, mask_rfpe), rfpe_correct),
-            (f"RFPE-tRFF\n✓ Correct: {true_c}",     overlay_lime(img_np, mask_trff), True),
+            (f"PRFE\n{rfpe_symbol} {rfpe_label}",   overlay_lime(img_np, mask_rfpe), rfpe_correct),
+            (f"PRFE-tRFF\n✓ Correct: {true_c}",     overlay_lime(img_np, mask_trff), True),
         ]):
             ax = axes[row][col]
             ax.imshow(overlay)
@@ -265,12 +265,12 @@ def main():
     # Modelos
     print("Loading models...")
     euc_model,  _ = load_model("euclidean",  False, device)
-    rfpe_model, _ = load_model("pontryagin", False, device)   # RFPE (fixed RFF)
-    trff_model, _ = load_model("pontryagin", True,  device)   # RFPE-tRFF (trainable)
+    rfpe_model, _ = load_model("pontryagin", False, device)   # PRFE (fixed RFF)
+    trff_model, _ = load_model("pontryagin", True,  device)   # PRFE-tRFF (trainable)
     print("OK")
 
-    # Encuentra casos: Euclidean falla, RFPE-tRFF acierta
-    print(f"\nScanning {args.n_samples} test images for Euc-wrong / RFPE-tRFF-right cases...")
+    # Encuentra casos: Euclidean falla, PRFE-tRFF acierta
+    print(f"\nScanning {args.n_samples} test images for Euc-wrong / PRFE-tRFF-right cases...")
     cases = find_cases(data["test_ds"], euc_model, rfpe_model, trff_model,
                        device, args.n_samples, args.n_show)
     print(f"Found {len(cases)} cases.")
