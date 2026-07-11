@@ -110,13 +110,21 @@ def task3():
     print("# TASK 3 — Few-shot segmentation (n=200 test episodes)")
     print("#" * 70)
     rows = _read_csv(RESULTS_DIR / "fss_sugarcane_persample.csv")
-    groups = ["euclidean_1shot", "pontryagin_1shot"]
+    groups = ["euclidean_1shot", "hyperbolic_1shot", "pontryagin_1shot"]
     tests = []
     for metric in ("iou", "dice", "precision", "recall"):
         piv, ids = _pivot(rows, "variant", "episode", metric, groups)
         tests.append(paired_wilcoxon(
             piv["pontryagin_1shot"], piv["euclidean_1shot"],
             name=f"PRFE-FSS vs Euclidean-FSS ({metric})",
+        ))
+        tests.append(paired_wilcoxon(
+            piv["pontryagin_1shot"], piv["hyperbolic_1shot"],
+            name=f"PRFE-FSS vs Hyperbolic-FSS ({metric})",
+        ))
+        tests.append(paired_wilcoxon(
+            piv["hyperbolic_1shot"], piv["euclidean_1shot"],
+            name=f"Hyperbolic-FSS vs Euclidean-FSS ({metric})",
         ))
     payload = run_family(tests, out_path=RESULTS_DIR / "stats_task3_fss.json")
     return payload

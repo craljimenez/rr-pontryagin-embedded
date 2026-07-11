@@ -33,6 +33,7 @@ OUT_CSV = Path(__file__).parent / "results" / "fss_sugarcane_persample.csv"
 # plus the tRFF variant used in the interpretability sub-analysis.
 VARIANTS = [
     ("euclidean_1shot",           "euclidean",  False),
+    ("hyperbolic_1shot",          "hyperbolic", False),
     ("pontryagin_1shot",          "pontryagin", False),
     ("pontryagin_1shot_trainable","pontryagin", True),
 ]

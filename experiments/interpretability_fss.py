@@ -71,6 +71,7 @@ from configs.fss_sugarcane import (
     RESULTS_DIR, TARGET_CLS, TRAINABLE_RFF,
 )
 from prfe.data.fss_dataset import EpisodicUAVDataset
+from prfe.models.fss import _poincare_dist
 from run_fss_sugarcane import build_model
 
 # Reuse CAM metric helpers from the FCN interpretability script
@@ -358,7 +359,13 @@ def _logits_fixed_proto(
     query_img: torch.Tensor,  # (1, 3, H, W)
 ) -> torch.Tensor:
     """Forward pass reusing a precomputed prototype — avoids re-encoding support."""
-    if hasattr(model, "embed"):          # Pontryagin
+    if hasattr(model, "delta"):          # Hyperbolic (unique attribute)
+        q_emb = model.embed(model.backbone(query_img))     # (1, C, H, W)
+        q_pts = q_emb.permute(0, 2, 3, 1)                  # (1, H, W, C)
+        p_pts = proto_fg[:, None, None, :]                 # (1, 1, 1, C)
+        dist  = _poincare_dist(q_pts, p_pts, model.c, model.eps)
+        return model.alpha * (model.delta - dist)
+    elif hasattr(model, "embed"):        # Pontryagin
         q_feat = model.backbone(query_img)
         q_emb  = model.embed(q_feat)
         J      = model.J[None, :, None, None]

@@ -1,11 +1,12 @@
 """generate_fss_episode_fig.py
 
-Regenera Figure 4.10: panel de episodio FSS en layout 2×3 con títulos
-normalizados (PRFE en lugar de Pontryagin) y 300 DPI PDF.
+Regenera Figure 4.10: panel de episodio FSS en layout 2×4 (Euclidean,
+Hyperbolic y PRFE, en el mismo orden usado en el resto del paper) con
+títulos normalizados (PRFE en lugar de Pontryagin) y 300 DPI PDF.
 
-Layout 2×3:
-  Row 0: Support 1  | FSS-Euclidean ScoreCAM      | FSS-PRFE ScoreCAM
-  Row 1: Query      | FSS-Euclidean Prediction     | FSS-PRFE Prediction
+Layout 2×4:
+  Row 0: Support 1  | FSS-Euclidean ScoreCAM  | FSS-Hyperbolic ScoreCAM  | FSS-PRFE ScoreCAM
+  Row 1: Query      | FSS-Euclidean Pred.      | FSS-Hyperbolic Pred.     | FSS-PRFE Pred.
 
 Usage:
     python experiments/generate_fss_episode_fig.py [--episode 1] [--k-shot 1]
@@ -40,23 +41,33 @@ from interpretability_fss import (
 
 OUT_DIR = EXP_DIR / "report" / "figures"
 
+# (column label, key suffix) — Euclidean / Hyperbolic / PRFE, matching the
+# ordering used throughout the paper (Table 4, VOC qualitative figure, etc.)
+_COLUMNS = [
+    ("euclidean",  "FSS-Euclidean"),
+    ("hyperbolic", "FSS-Hyperbolic"),
+    ("pontryagin", "FSS-PRFE"),
+]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-def make_2x3_figure(
+def make_2x4_figure(
     sup_rgb, q_rgb, gt,
-    heat_e, pred_e, iou_e,
-    heat_p, pred_p, iou_p,
+    heats, preds, ious,
     episode_idx,
     out_path,
 ):
     """
-    Row 0: Support 1  | FSS-Euclidean ScoreCAM  | FSS-PRFE ScoreCAM
-    Row 1: Query      | FSS-Euclidean Prediction | FSS-PRFE Prediction
+    Row 0: Support 1  | FSS-Euclidean ScoreCAM  | FSS-Hyperbolic ScoreCAM  | FSS-PRFE ScoreCAM
+    Row 1: Query      | FSS-Euclidean Pred.      | FSS-Hyperbolic Pred.     | FSS-PRFE Pred.
+
+    heats, preds, ious: dicts keyed by model_name ("euclidean", "hyperbolic", "pontryagin").
     """
+    n_cols = 1 + len(_COLUMNS)
     fig, axes = plt.subplots(
-        2, 3,
-        figsize=(13, 8),
+        2, n_cols,
+        figsize=(4.3 * n_cols, 8),
         gridspec_kw={"wspace": 0.06, "hspace": 0.18},
     )
 
@@ -66,15 +77,11 @@ def make_2x3_figure(
     axes[0, 0].set_title("Support 1", fontsize=11, fontweight="bold")
     _axoff(axes[0, 0])
 
-    axes[0, 1].imshow(_overlay(q_rgb, heat_e))
-    _gt_contour(axes[0, 1], gt)
-    axes[0, 1].set_title("FSS-Euclidean\nScoreCAM", fontsize=11, fontweight="bold")
-    _axoff(axes[0, 1])
-
-    axes[0, 2].imshow(_overlay(q_rgb, heat_p))
-    _gt_contour(axes[0, 2], gt)
-    axes[0, 2].set_title("FSS-PRFE\nScoreCAM", fontsize=11, fontweight="bold")
-    _axoff(axes[0, 2])
+    for col, (model_name, label) in enumerate(_COLUMNS, start=1):
+        axes[0, col].imshow(_overlay(q_rgb, heats[model_name]))
+        _gt_contour(axes[0, col], gt)
+        axes[0, col].set_title(f"{label}\nScoreCAM", fontsize=11, fontweight="bold")
+        _axoff(axes[0, col])
 
     # ── Row 1 ────────────────────────────────────────────────────────────────
     axes[1, 0].imshow(q_rgb)
@@ -82,28 +89,21 @@ def make_2x3_figure(
     axes[1, 0].set_title("Query", fontsize=11, fontweight="bold")
     _axoff(axes[1, 0])
 
-    axes[1, 1].imshow(pred_e, cmap="gray", vmin=0, vmax=1)
-    _gt_contour(axes[1, 1], gt)
-    axes[1, 1].set_title(
-        f"FSS-Euclidean Prediction\nIoU = {iou_e:.3f}",
-        fontsize=11, fontweight="bold",
-    )
-    _axoff(axes[1, 1])
-
-    axes[1, 2].imshow(pred_p, cmap="gray", vmin=0, vmax=1)
-    _gt_contour(axes[1, 2], gt)
-    axes[1, 2].set_title(
-        f"FSS-PRFE Prediction\nIoU = {iou_p:.3f}",
-        fontsize=11, fontweight="bold",
-    )
-    _axoff(axes[1, 2])
+    for col, (model_name, label) in enumerate(_COLUMNS, start=1):
+        axes[1, col].imshow(preds[model_name], cmap="gray", vmin=0, vmax=1)
+        _gt_contour(axes[1, col], gt)
+        axes[1, col].set_title(
+            f"{label} Prediction\nIoU = {ious[model_name]:.3f}",
+            fontsize=11, fontweight="bold",
+        )
+        _axoff(axes[1, col])
 
     fig.suptitle(
         f"Episode {episode_idx:03d} — ScoreCAM comparison  (green contour = GT)",
         fontsize=11, y=1.01,
     )
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=300, format="pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved → {out_path}")
@@ -117,14 +117,18 @@ def main():
                     help="0-based episode index (default 1, matches IoU 0.911/0.876)")
     ap.add_argument("--k-shot",  type=int, default=1)
     ap.add_argument("--device",  type=str, default=DEVICE)
+    ap.add_argument("--out", type=str, default=None,
+                    help="Output PDF path (default: report/figures/fss_ep_example.pdf)")
     args = ap.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     print("Loading models …")
-    model_euc  = _load_model("euclidean",  args.k_shot, RESULTS_DIR, device, False)
-    model_pont = _load_model("pontryagin", args.k_shot, RESULTS_DIR, device, False)
+    models = {
+        model_name: _load_model(model_name, args.k_shot, RESULTS_DIR, device, False)
+        for model_name, _ in _COLUMNS
+    }
     print("OK")
 
     test_ds = EpisodicUAVDataset(
@@ -148,28 +152,25 @@ def main():
         sup_rgb = _denorm(sup_imgs[0, 0])   # first support image
 
         print(f"Episode {ep_idx}: computing predictions …")
+        preds, ious, heats = {}, {}, {}
         with torch.no_grad():
-            pred_e = (model_euc.forward(sup_imgs, sup_masks, q_img)[0] > 0).float().cpu().numpy()
-            pred_p = (model_pont.forward(sup_imgs, sup_masks, q_img)[0] > 0).float().cpu().numpy()
-
-        iou_e = _iou(pred_e, gt)
-        iou_p = _iou(pred_p, gt)
-        print(f"  IoU — Euclidean: {iou_e:.3f}   PRFE: {iou_p:.3f}")
+            for model_name, model in models.items():
+                pred = (model.forward(sup_imgs, sup_masks, q_img)[0] > 0).float().cpu().numpy()
+                preds[model_name] = pred
+                ious[model_name]  = _iou(pred, gt)
+        print("  IoU —", ", ".join(f"{n}: {ious[n]:.3f}" for n in models))
 
         print("  Computing ScoreCAM …")
-        cam_euc  = FSSScoreCAM(model_euc)
-        cam_pont = FSSScoreCAM(model_pont)
-        heat_e = cam_euc.compute(sup_imgs, sup_masks, q_img)
-        heat_p = cam_pont.compute(sup_imgs, sup_masks, q_img)
-        cam_euc.remove()
-        cam_pont.remove()
+        for model_name, model in models.items():
+            cam = FSSScoreCAM(model)
+            heats[model_name] = cam.compute(sup_imgs, sup_masks, q_img)
+            cam.remove()
 
-        out_path = OUT_DIR / f"fss_ep_example.pdf"
-        print("  Building 2×3 figure …")
-        make_2x3_figure(
+        out_path = Path(args.out) if args.out else (OUT_DIR / "fss_ep_example.pdf")
+        print("  Building 2×4 figure …")
+        make_2x4_figure(
             sup_rgb, q_rgb, gt,
-            heat_e, pred_e, iou_e,
-            heat_p, pred_p, iou_p,
+            heats, preds, ious,
             ep_idx, out_path,
         )
         break   # only one episode
