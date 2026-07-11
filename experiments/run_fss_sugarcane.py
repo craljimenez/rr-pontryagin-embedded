@@ -2,9 +2,10 @@
 
 Compares:
     euclidean   — PANet backbone + cosine similarity
+    hyperbolic  — PANet backbone + Poincaré-ball prototype distance
     pontryagin  — PANet backbone + Pontryagin J-inner product (this work)
 
-Both models share the same backbone, episodic dataset, augmentations,
+All models share the same backbone, episodic dataset, augmentations,
 optimiser, cosine LR schedule, and early-stopping policy.
 Only the embedding layer and similarity function differ.
 
@@ -42,14 +43,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from configs.fss_sugarcane import (
     AVAILABLE_MODELS, BASE_CH, BATCH_EPISODES, BCE_WEIGHT,
     CONE_EPSILON, DATASET_ROOT, DEPTH, DEVICE, EARLY_STOP_PATIENCE, EPOCHS,
-    IMG_SIZE, K_SHOT, LAMBDA_CONE, LAMBDA_ORTH, LR, LR_MIN,
+    HYPERBOLIC_C, IMG_SIZE, K_SHOT, LAMBDA_CONE, LAMBDA_ORTH, LR, LR_MIN,
     N_EPISODES_TEST, N_EPISODES_TRAIN, N_EPISODES_VAL, N_RFF, N_SRF,
     NUM_WORKERS, POS_WEIGHT, RESULTS_DIR, SIGMA, TARGET_CLS, TRAINABLE_RFF,
     WEIGHT_DECAY,
 )
 from prfe.data.fss_dataset import EpisodicUAVDataset
 from prfe.losses.fss import EuclideanFSSLoss, PontryaginFSSLoss
-from prfe.models.fss import EuclideanFewShotSeg, PontryaginFewShotSeg
+from prfe.models.fss import (
+    EuclideanFewShotSeg, HyperbolicFewShotSeg, PontryaginFewShotSeg,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -167,6 +170,18 @@ def build_model(
             base_ch=BASE_CH,
             depth=DEPTH,
         )
+        loss_fn = EuclideanFSSLoss(
+            bce_weight=p.get("bce_weight", BCE_WEIGHT),
+            pos_weight=p.get("pos_weight", POS_WEIGHT),
+        )
+    elif model_name == "hyperbolic":
+        model = HyperbolicFewShotSeg(
+            base_ch=BASE_CH,
+            depth=DEPTH,
+            c=p.get("hyperbolic_c", HYPERBOLIC_C),
+        )
+        # Same base segmentation loss as Euclidean — the Poincaré geometry
+        # has no cone/orthogonality analogue, so no extra penalty terms.
         loss_fn = EuclideanFSSLoss(
             bce_weight=p.get("bce_weight", BCE_WEIGHT),
             pos_weight=p.get("pos_weight", POS_WEIGHT),

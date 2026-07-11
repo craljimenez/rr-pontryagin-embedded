@@ -41,6 +41,9 @@ LAMBDA_CONE     = 0.1
 LAMBDA_ORTH     = 0.05
 CONE_EPSILON    = 0.1
 
+# ── Hyperbolic-specific ───────────────────────────────────────────────────────
+HYPERBOLIC_C    = 1.0          # Poincaré-ball curvature (HPO-searchable)
+
 # ── shared loss ───────────────────────────────────────────────────────────────
 BCE_WEIGHT      = 0.5          # weight on BCE; Dice gets (1 - BCE_WEIGHT)
 POS_WEIGHT      = 5.0          # class-imbalance correction for BCE
@@ -55,4 +58,4 @@ LR_MIN          = 1e-5         # cosine annealing floor
 WEIGHT_DECAY    = 1e-4
 EARLY_STOP_PATIENCE = 10       # epochs without val IoU improvement
 
-AVAILABLE_MODELS = ("euclidean", "pontryagin")
+AVAILABLE_MODELS = ("euclidean", "hyperbolic", "pontryagin")

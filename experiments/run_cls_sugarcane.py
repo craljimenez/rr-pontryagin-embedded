@@ -175,11 +175,16 @@ class SugarcaneLeafDataset(Dataset):
         self.classes   = [p.name for p in class_dirs]
         self.class_to_idx = {c: i for i, c in enumerate(self.classes)}
 
-        # Collect all (path, label) pairs
+        # Collect all (path, label) pairs. Sorted for reproducibility: iterdir()
+        # order is filesystem-dependent, not alphabetical — without sorting, the
+        # same `seed` below yields a *different* train/val/test split whenever
+        # the dataset is re-downloaded/re-extracted (verified empirically: the
+        # unsorted order no longer reproduces the exact test split used to
+        # generate the paper's Table 2, even on the same cached download).
         all_samples: list[tuple[Path, int]] = []
         for cls_dir in class_dirs:
             label = self.class_to_idx[cls_dir.name]
-            for f in cls_dir.iterdir():
+            for f in sorted(cls_dir.iterdir()):
                 if f.suffix.lower() in _IMG_EXTS:
                     all_samples.append((f, label))
 

@@ -1,23 +1,26 @@
-"""Few-shot segmentation models: Euclidean vs Pontryagin.
+"""Few-shot segmentation models: Euclidean vs Hyperbolic vs Pontryagin.
 
-Both follow the PANet protocol (Wang et al. 2019):
+All follow the PANet protocol (Wang et al. 2019):
   1. A shared UNetBackbone extracts (B, C, H, W) feature maps.
   2. Support features are masked-average-pooled → one prototype per episode.
   3. Each query pixel is scored against the prototype.
 
 The only architectural difference is the embedding and similarity function:
   - EuclideanFewShotSeg : cosine similarity with learnable temperature α
+  - HyperbolicFewShotSeg: PoincareEmbedding (expmap at the origin) +
+                          negative Poincaré distance to the prototype,
+                          with learnable temperature α and radius offset δ
   - PontryaginFewShotSeg: PontryaginEmbedding + J-inner product ⟨z, c⟩_J
 
-Both models expose the same forward / compute_loss interface so the training
-loop is identical for the two variants.
+All models expose the same forward / compute_loss / predict interface so the
+training loop is identical across variants.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from prfe.layers import PontryaginEmbedding
+from prfe.layers import PoincareEmbedding, PontryaginEmbedding
 from prfe.models.unet import UNetBackbone
 
 
@@ -116,6 +119,151 @@ class EuclideanFewShotSeg(nn.Module):
         p_norm = F.normalize(proto_fg, dim=1)[:, :, None, None]     # (B, C, 1, 1)
 
         return self.alpha * (q_norm * p_norm).sum(dim=1)            # (B, H, W)
+
+    def compute_loss(
+        self,
+        support_imgs:  torch.Tensor,
+        support_masks: torch.Tensor,
+        query_imgs:    torch.Tensor,
+        query_masks:   torch.Tensor,
+        loss_fn: nn.Module,
+    ) -> torch.Tensor:
+        """Training step — returns scalar loss."""
+        logits = self.forward(support_imgs, support_masks, query_imgs)
+        return loss_fn(logits, query_masks)
+
+    @torch.no_grad()
+    def predict(
+        self,
+        support_imgs:  torch.Tensor,
+        support_masks: torch.Tensor,
+        query_imgs:    torch.Tensor,
+        threshold: float = 0.0,
+    ) -> torch.Tensor:
+        """Binary prediction map (B, H, W) — 1=foreground."""
+        logits = self.forward(support_imgs, support_masks, query_imgs)
+        return (logits > threshold).float()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hyperbolic few-shot segmentation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _mobius_add(x: torch.Tensor, y: torch.Tensor, c: float,
+                eps: float = 1e-5) -> torch.Tensor:
+    """Möbius addition x ⊕_c y along the last dimension.
+
+    Mirrors prfe.losses.hyperbolic_mlr._mobius_add (duplicated here so the
+    models module does not depend on the losses module).
+    """
+    xy = (x * y).sum(dim=-1, keepdim=True)
+    x2 = (x * x).sum(dim=-1, keepdim=True)
+    y2 = (y * y).sum(dim=-1, keepdim=True)
+    num = (1 + 2 * c * xy + c * y2) * x + (1 - c * x2) * y
+    denom = 1 + 2 * c * xy + (c ** 2) * x2 * y2
+    return num / denom.clamp(min=eps)
+
+
+def _poincare_dist(x: torch.Tensor, y: torch.Tensor, c: float,
+                   eps: float = 1e-5) -> torch.Tensor:
+    """Geodesic distance on the Poincaré ball 𝔹^d_c, last dim = d.
+
+    d_c(x, y) = (2/√c) · artanh(√c · ‖(−x) ⊕_c y‖)
+    """
+    sqrt_c = c ** 0.5
+    diff_norm = _mobius_add(-x, y, c, eps).norm(dim=-1)
+    # artanh argument must stay strictly below 1 for finite distances
+    arg = (sqrt_c * diff_norm).clamp(max=1.0 - eps)
+    return (2.0 / sqrt_c) * torch.atanh(arg)
+
+
+class HyperbolicFewShotSeg(nn.Module):
+    """PANet-style few-shot segmentation on the Poincaré ball.
+
+    Prototype: masked average of Poincaré-ball embeddings over support
+    images. The ball is convex, so a convex combination of interior points
+    remains interior — mirroring how the Euclidean and Pontryagin variants
+    pool directly in their respective embedding spaces; a numerical shrink
+    keeps the prototype strictly inside the ball.
+
+    Similarity: α · (δ − d_c(pixel_embed, prototype)) — the standard
+    distance-based classifier of hyperbolic prototype networks adapted to a
+    dense binary logit map. α is a learnable temperature (initialised at
+    10.0, mirroring EuclideanFewShotSeg) and δ a learnable decision radius,
+    so the zero-crossing used by predict(threshold=0.0) is learned end to
+    end rather than fixed.
+
+    Args:
+        in_channels: input image channels (default 3)
+        base_ch:     UNetBackbone first-block channels
+        depth:       UNetBackbone depth
+        c:           curvature of the Poincaré ball
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 3,
+        base_ch: int = 32,
+        depth: int = 3,
+        c: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self.backbone = UNetBackbone(
+            in_channels=in_channels,
+            out_channels=base_ch,
+            base_ch=base_ch,
+            depth=depth,
+        )
+        self.embed    = PoincareEmbedding(c=c)
+        self.c        = float(c)
+        self.eps      = 1e-5
+        self.feat_dim = base_ch
+        self.alpha    = nn.Parameter(torch.tensor(10.0))   # temperature
+        self.delta    = nn.Parameter(torch.tensor(1.0))    # decision radius
+
+    # ------------------------------------------------------------------
+
+    def _encode(self, x: torch.Tensor) -> torch.Tensor:
+        """(N, 3, H, W) → (N, C, H, W) — backbone + expmap into the ball."""
+        return self.embed(self.backbone(x))
+
+    def _shrink_into_ball(self, p: torch.Tensor) -> torch.Tensor:
+        """Numerically guarantee ‖p‖ < 1/√c (same guard as PoincareEmbedding)."""
+        max_norm = (1.0 - self.eps) / (self.c ** 0.5)
+        p_norm = p.norm(dim=-1, keepdim=True).clamp(min=self.eps)
+        return p * torch.clamp(max_norm / p_norm, max=1.0)
+
+    def _prototypes(
+        self,
+        support_imgs: torch.Tensor,   # (B, K, 3, H, W)
+        support_masks: torch.Tensor,  # (B, K, H, W)
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Foreground / background prototypes on the ball. Returns (B, C) each."""
+        B, K = support_imgs.shape[:2]
+        H, W = support_imgs.shape[3:]
+
+        sup_flat = support_imgs.reshape(B * K, *support_imgs.shape[2:])
+        sup_emb  = self._encode(sup_flat).reshape(B, K, self.feat_dim, H, W)
+
+        proto_fg = self._shrink_into_ball(masked_avg_pool(sup_emb, support_masks))
+        proto_bg = self._shrink_into_ball(masked_avg_pool(sup_emb, 1.0 - support_masks))
+        return proto_fg, proto_bg
+
+    def forward(
+        self,
+        support_imgs:  torch.Tensor,   # (B, K, 3, H, W)
+        support_masks: torch.Tensor,   # (B, K, H, W)
+        query_imgs:    torch.Tensor,   # (B, 3, H, W)
+    ) -> torch.Tensor:
+        """Return foreground logit map (B, H, W) = α·(δ − d_c(z, proto_fg))."""
+        proto_fg, _ = self._prototypes(support_imgs, support_masks)
+
+        q_emb = self._encode(query_imgs)                     # (B, C, H, W)
+        q_pts = q_emb.permute(0, 2, 3, 1)                    # (B, H, W, C)
+        p_pts = proto_fg[:, None, None, :]                   # (B, 1, 1, C)
+
+        dist = _poincare_dist(q_pts, p_pts, self.c, self.eps)  # (B, H, W)
+        return self.alpha * (self.delta - dist)
 
     def compute_loss(
         self,

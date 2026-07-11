@@ -29,12 +29,17 @@ RES_DIR  = EXP_DIR / "results" / "seg_pascalvoc_results"
 FIG_DIR  = EXP_DIR / "report" / "figures"
 TAB_DIR  = EXP_DIR / "report" / "tables"
 
-HEADS  = ["euclidean", "hyperbolic", "pontryagin"]
+HEADS  = ["euclidean", "hyperbolic", "pontryagin", "pontryagin_trff"]
 LABELS = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic",
-          "pontryagin": "PRFE"}
-# Paleta categórica validada (dataviz): azul / aqua / naranja
+          "pontryagin": "PRFE", "pontryagin_trff": "PRFE-tRFF"}
+# LaTeX-only labels with dagger/double-dagger, matching tab:cls's convention
+# for fixed-RFF vs trainable-RFF Pontryagin variants.
+LATEX_LABELS = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic",
+                "pontryagin": r"PRFE\textsuperscript{\dag}",
+                "pontryagin_trff": r"PRFE-tRFF\textsuperscript{\ddag}"}
+# Paleta categórica validada (dataviz): azul / aqua / naranja / violeta
 COLORS = {"euclidean": "#2a78d6", "hyperbolic": "#1baf7a",
-          "pontryagin": "#eb6834"}
+          "pontryagin": "#eb6834", "pontryagin_trff": "#4a3aa7"}
 
 
 def load_results():
@@ -95,7 +100,9 @@ def write_global_table(glob):
         r"\caption{Multiclass semantic segmentation on PASCAL VOC 2012"
         r" (21 classes, 725 held-out test images). All heads share the same"
         r" ImageNet-pretrained ResNet-34 U-Net backbone; hyperparameters"
-        r" tuned per head with 20-trial Bayesian optimisation."
+        r" tuned per head with Bayesian optimisation (20--30 trials,"
+        r" scaled with search-space dimensionality; Section~\ref{sec:setup:data})."
+        r" \textsuperscript{\dag}~Fixed RFF. \textsuperscript{\ddag}~Trainable RFF (tRFF)."
         r" Best values in \textbf{bold}.}",
         r"\label{tab:voc}",
         r"\centering",
@@ -109,7 +116,7 @@ def write_global_table(glob):
     for h in HEADS:
         mask = [best[k] == h for k in metric_keys]
         cells = _fmt_row(vals[h], mask)
-        lines.append(f"{LABELS[h]} & " + " & ".join(cells) + r" \\")
+        lines.append(f"{LATEX_LABELS[h]} & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular*}", r"\end{table*}"]
     (TAB_DIR / "pascalvoc_seg_table.tex").write_text("\n".join(lines) + "\n")
     print("  pascalvoc_seg_table.tex written")
@@ -144,9 +151,14 @@ def write_perclass_table(per):
     )
     lines = [
         r"\begin{table*}[t]",
-        r"\caption{Per-class test IoU (\%) on PASCAL VOC 2012;"
-        r" in parentheses, the ground-truth pixel support of each class"
-        r" in the 725 test images. Best per class in \textbf{bold}.}",
+        r"\caption{Per-class test IoU (\%) on PASCAL VOC 2012, computed by"
+        r" pooling TP/FP/FN across all 725 test images per class (the"
+        r" standard per-class protocol; not a per-image average, since most"
+        r" classes are present in only a small subset of the 725 images —"
+        r" e.g.\ \emph{sheep} appears in 25, \emph{person} in 221)."
+        r" In parentheses, the ground-truth pixel support of each class."
+        r" \textsuperscript{\dag}~Fixed RFF. \textsuperscript{\ddag}~Trainable RFF (tRFF)."
+        r" Best per class in \textbf{bold}.}",
         r"\label{tab:voc_perclass}",
         r"\centering",
         r"\scriptsize",
@@ -164,7 +176,7 @@ def write_perclass_table(per):
             cells.append(rf"\textbf{{{s}}}" if best[i] == h else s)
         m = f"{miou[h]:.1f}"
         m = rf"\textbf{{{m}}}" if best_miou == h else m
-        lines.append(f"{LABELS[h]} & " + " & ".join(cells) + f" & {m}" + r" \\")
+        lines.append(f"{LATEX_LABELS[h]} & " + " & ".join(cells) + f" & {m}" + r" \\")
     lines += [r"\bottomrule", r"\end{tabular*}", r"\end{table*}"]
     (TAB_DIR / "pascalvoc_perclass_table.tex").write_text("\n".join(lines) + "\n")
     print("  pascalvoc_perclass_table.tex written")
@@ -222,10 +234,10 @@ def main():
     perclass_figure(per)
 
     # resumen rápido en consola
-    print("\n  head        mIoU    Dice    Prec    Rec     Acc")
+    print("\n  head              mIoU    Dice    Prec    Rec     Acc")
     for h in HEADS:
         g = glob[h]
-        print(f"  {h:<11} {g['macro_iou']:.4f}  {g['macro_dice']:.4f}"
+        print(f"  {h:<17} {g['macro_iou']:.4f}  {g['macro_dice']:.4f}"
               f"  {g['macro_precision']:.4f}  {g['macro_recall']:.4f}"
               f"  {g['pixel_acc']:.4f}")
 

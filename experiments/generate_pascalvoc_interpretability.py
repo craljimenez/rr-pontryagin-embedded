@@ -51,9 +51,9 @@ from run_seg_pascalvoc import build_unet_model as build_model, _voc_colormap
 RES_DIR = EXP_DIR / "results" / "seg_pascalvoc_results"
 FIG_DIR = EXP_DIR / "report" / "figures"
 
-HEADS   = ["euclidean", "hyperbolic", "pontryagin"]
+HEADS   = ["euclidean", "hyperbolic", "pontryagin", "pontryagin_trff"]
 LABELS  = {"euclidean": "Euclidean", "hyperbolic": "Hyperbolic",
-           "pontryagin": "PRFE"}
+           "pontryagin": "PRFE", "pontryagin_trff": "PRFE-tRFF"}
 PALETTE = _voc_colormap()
 
 N_MC   = 30
@@ -115,8 +115,13 @@ def _norm01(a):
 # Models
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_head(model_type, device):
-    ck = torch.load(RES_DIR / model_type / "best_model.pth",
+def load_head(head, device):
+    # "pontryagin_trff" is not its own model_type — it's model_type=
+    # "pontryagin" with params["trainable_rff"]=True (already baked into the
+    # saved checkpoint's "params" dict by run_seg_pascalvoc.py), living in
+    # its own results folder so it never collides with the fixed-RFF run.
+    model_type = "pontryagin" if head == "pontryagin_trff" else head
+    ck = torch.load(RES_DIR / head / "best_model.pth",
                     map_location="cpu", weights_only=False)
     model = build_model(model_type, ck.get("params", {}))
     model.load_state_dict(ck["model_state_dict"])
@@ -213,8 +218,10 @@ def qualitative_figure(models, dataset, device, n_show=4):
             pred = m(inp).argmax(1)[0].cpu().numpy()
             mious[h] = per_image_miou(pred, gt)
         scores.append((i, mious))
-    # spread = PRFE advantage over the euclidean baseline
-    scores.sort(key=lambda s: s[1]["pontryagin"] - s[1]["euclidean"],
+    # spread = best-PRFE-variant advantage over the euclidean baseline
+    # (uses PRFE-tRFF, the stronger variant, so the panel showcases where
+    # the flagship result actually wins)
+    scores.sort(key=lambda s: max(s[1]["pontryagin"], s[1]["pontryagin_trff"]) - s[1]["euclidean"],
                 reverse=True)
     # 3 images where PRFE wins + the median image (typical behaviour)
     chosen = [s[0] for s in scores[:n_show - 1]]

@@ -4,11 +4,13 @@ Optimises mean val IoU over N_EPISODES_VAL episodes.
 
 Search spaces:
     euclidean   : lr, weight_decay, bce_weight, pos_weight
+    hyperbolic  : lr, weight_decay, bce_weight, pos_weight, hyperbolic_c
     pontryagin  : lr, weight_decay, bce_weight, pos_weight,
                   rff_multiplier, srf_multiplier, sigma, lambda_cone, lambda_orth
 
 Usage:
     python tune_fss_sugarcane.py --model euclidean  --n-calls 20 --trial-epochs 10
+    python tune_fss_sugarcane.py --model hyperbolic --n-calls 25 --trial-epochs 10
     python tune_fss_sugarcane.py --model pontryagin --n-calls 30 --trial-epochs 10
     python tune_fss_sugarcane.py --model all        --n-calls 30 --trial-epochs 10 --k-shot 1
 """
@@ -59,10 +61,17 @@ _PONTRYAGIN_EXTRA = [
     Real(1e-3, 0.5, prior="log-uniform",  name="lambda_orth"),
 ]
 
+# Same curvature range as the dense-segmentation hyperbolic head (tab:hpo).
+_HYPERBOLIC_EXTRA = [
+    Real(0.1, 2.0,  prior="log-uniform",  name="hyperbolic_c"),
+]
+
 
 def search_space(model_name: str) -> list:
     if model_name == "euclidean":
         return list(_COMMON)
+    if model_name == "hyperbolic":
+        return list(_COMMON) + list(_HYPERBOLIC_EXTRA)
     if model_name == "pontryagin":
         return list(_COMMON) + list(_PONTRYAGIN_EXTRA)
     raise ValueError(f"Unknown model: {model_name!r}")
