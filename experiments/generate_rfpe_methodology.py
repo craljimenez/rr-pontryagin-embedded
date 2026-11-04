@@ -4,7 +4,7 @@ Output: report/figures/rfpe_methodology.pdf
 
 Font sizing rationale:
   figure width  = 15 in
-  thesis \linewidth ≈ 6.3 in  →  scale = 6.3/15 = 0.42
+  thesis linewidth ≈ 6.3 in  →  scale = 6.3/16 ≈ 0.39
   to get 9 pt body text: need 9/0.42 ≈ 21 pt in matplotlib
   All font sizes here are ≈2× the visual sizes of v2.
 """
@@ -16,7 +16,8 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch
 from pathlib import Path
 
-OUT = Path(__file__).parent / "report" / "figures" / "rfpe_methodology.pdf"
+import sys
+OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "report" / "figures" / "rfpe_methodology.pdf"
 
 # Match thesis font (mathptmx = Times Roman). STIX is the closest substitute.
 plt.rcParams.update({
@@ -37,8 +38,8 @@ C_CLS      = "#558B2F"
 C_FSS      = "#6A1B9A"
 
 # ── figure  15×11 in — y-coords scaled ×1.222 vs v2 ──────────────────────────
-fig, ax = plt.subplots(figsize=(15, 11))
-ax.set_xlim(0, 15)
+fig, ax = plt.subplots(figsize=(16, 11))
+ax.set_xlim(0, 16)
 ax.set_ylim(0, 11)
 ax.axis("off")
 fig.patch.set_facecolor("white")
@@ -78,7 +79,7 @@ def arr(ax, x0, y0, x1, y1, color=C_ARROW, lw=2.0,
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERALL TITLE
 # ══════════════════════════════════════════════════════════════════════════════
-lbl(ax, 7.5, 10.65,
+lbl(ax, 8.0, 10.75,
     "Pontryagin Random Feature Embeddings (PRFE) — General Methodology",
     "#111111", 26, "bold")
 
@@ -97,7 +98,7 @@ lbl(ax, 1.15, 7.45, "Image / tensor",                                 C_BACKBONE
 box(ax, 2.35, 5.44, 2.3, 3.36, C_BACKBONE, alpha=0.13)
 border(ax, 2.35, 5.44, 2.3, 3.36, C_BACKBONE)
 lbl(ax, 3.5, 8.43, "Backbone",            C_BACKBONE, 22, "bold")
-lbl(ax, 3.5, 7.97, "FCN / UNet /",        C_BACKBONE, 18)
+lbl(ax, 3.5, 7.97, "FCN / U-Net /",        C_BACKBONE, 18)
 lbl(ax, 3.5, 7.55, "ConvNeXtV2 …",        C_BACKBONE, 18)
 lbl(ax, 3.5, 7.00, r"$\mathbf{f}\in\mathbb{R}^{C\times H\times W}$", C_BACKBONE, 18)
 lbl(ax, 3.5, 6.48, "Dense feature map",   C_BACKBONE, 16)
@@ -109,11 +110,11 @@ lbl(ax, 2.2, 7.62, r"$\mathbf{x}$", C_BACKBONE, 20)
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. RFPE MODULE outer box   (x=4.85, y=2.63, w=5.9, h=7.45)  top=10.08
 # ══════════════════════════════════════════════════════════════════════════════
-box(ax, 4.85, 2.63, 5.9, 7.45, C_PONT, alpha=0.05, radius=0.3)
-border(ax, 4.85, 2.63, 5.9, 7.45, C_PONT, radius=0.3, lw=3.2)
-lbl(ax, 7.8, 9.75,
-    "PRFE Module  —  Pontryagin Random Feature Embeddings",
-    C_PONT, 19, "bold")
+box(ax, 4.85, 2.85, 7.0, 7.45, C_PONT, alpha=0.05, radius=0.3)
+border(ax, 4.85, 2.85, 7.0, 7.45, C_PONT, radius=0.3, lw=3.2)
+lbl(ax, 8.35, 9.95,
+    "PRFE Module",
+    C_PONT, 20, "bold")
 
 # Backbone → RFPE entry arrow  (at backbone centre-y ≈ 7.12)
 arr(ax, 4.65, 7.12, 4.85, 7.12, lw=2.5)
@@ -123,36 +124,36 @@ lbl(ax, 4.75, 7.42, r"$\mathbf{f}$", C_BACKBONE, 20)
 ax.plot([4.85, 4.85], [4.52, 8.00], color=C_ARROW, lw=2.0, zorder=4)
 
 # ── 3a. RFF sub-box   (x=5.15, y=6.54, w=2.8, h=2.93)  centre-y=8.00 ────────
-box(ax, 5.15, 6.54, 2.8, 2.93, C_RFF, alpha=0.16, radius=0.14)
-lbl(ax, 6.55, 9.14,
-    r"$\boldsymbol{\varphi}_+(\mathbf{f})$ — RFF (positive)",  C_RFF, 20, "bold")
-lbl(ax, 6.55, 8.61,
+box(ax, 5.15, 6.54, 3.5, 2.93, C_RFF, alpha=0.16, radius=0.14)
+lbl(ax, 6.9, 9.14,
+    r"$\boldsymbol{\varphi}_+(\mathbf{f})$ — RFF (positive)",  C_RFF, 19, "bold")
+lbl(ax, 6.9, 8.61,
     r"$K_+=\exp\!\left(-\dfrac{\|\mathbf{x}-\mathbf{y}\|^2}{2\sigma^2}\right)$",
     C_RFF, 18)
-lbl(ax, 6.55, 8.07,
+lbl(ax, 6.9, 8.07,
     r"$\omega_i\!\sim\!\mathcal{N}(0,\sigma^{-2}I),\;b_i\!\sim\!\mathcal{U}[0,2\pi]$",
     C_RFF, 16)
-lbl(ax, 6.55, 7.58,
+lbl(ax, 6.9, 7.58,
     r"$\varphi_+(\mathbf{f})=\frac{1}{\sqrt{n}}[\cos(\omega_i^\top\mathbf{f}+b_i)]$",
     C_RFF, 18)
-lbl(ax, 6.55, 7.10,
+lbl(ax, 6.9, 7.10,
     r"$\varphi_+(\mathbf{f})\in\mathbb{R}^{p}$",
     C_RFF, 16)
 
 # ── 3b. SRF sub-box   (x=5.15, y=3.18, w=2.8, h=2.69)  centre-y=4.52 ────────
-box(ax, 5.15, 3.18, 2.8, 2.69, C_SRF, alpha=0.14, radius=0.14)
-lbl(ax, 6.55, 5.60,
-    r"$\boldsymbol{\varphi}_-(\mathbf{f})$ — SRF (negative)",  C_SRF, 20, "bold")
-lbl(ax, 6.55, 5.08,
+box(ax, 5.15, 3.18, 3.5, 2.69, C_SRF, alpha=0.14, radius=0.14)
+lbl(ax, 6.9, 5.60,
+    r"$\boldsymbol{\varphi}_-(\mathbf{f})$ — SRF (negative)",  C_SRF, 19, "bold")
+lbl(ax, 6.9, 5.08,
     r"$K_-(\mathbf{x},\mathbf{y})=(\mathbf{x}^\top\mathbf{y})^{d}$",
     C_SRF, 18)
-lbl(ax, 6.55, 4.58,
+lbl(ax, 6.9, 4.58,
     r"$\omega_{j\ell}\!\sim\!\mathcal{U}(S^{d-1})$",
     C_SRF, 16)
-lbl(ax, 6.55, 4.10,
+lbl(ax, 6.9, 4.10,
     r"$\varphi_-(\mathbf{f})_j=\frac{1}{\sqrt{\kappa}}\prod_\ell(\omega_{j\ell}^\top\mathbf{f})$",
     C_SRF, 18)
-lbl(ax, 6.55, 3.60,
+lbl(ax, 6.9, 3.60,
     r"$\varphi_-(\mathbf{f})\in\mathbb{R}^{\kappa}$",
     C_SRF, 16)
 
@@ -161,51 +162,51 @@ arr(ax, 4.85, 8.00, 5.15, 8.00)   # → RFF centre
 arr(ax, 4.85, 4.52, 5.15, 4.52)   # → SRF centre
 
 # ── 3c. Pontryagin sub-box   (x=8.2, y=4.09, w=2.3, h=3.91)  centre-y=6.05 ──
-box(ax, 8.2, 4.09, 2.3, 3.91, C_PONT, alpha=0.20, radius=0.15)
-lbl(ax, 9.35, 7.67, "Pontryagin space",                                  C_PONT, 20, "bold")
-lbl(ax, 9.35, 7.21, r"$\mathbf{z}=[\boldsymbol{\varphi}_+\!\parallel\!\boldsymbol{\varphi}_-]$", C_PONT, 18)
-lbl(ax, 9.35, 6.72, r"$\mathbf{z}\in\Pi_\kappa=\mathbb{R}^{p+\kappa}$",     C_PONT, 18)
-lbl(ax, 9.35, 6.23, r"$\langle\mathbf{u},\mathbf{v}\rangle_J=\mathbf{u}^\top J\mathbf{v}$", C_PONT, 18)
-lbl(ax, 9.35, 5.74, r"$J=\mathrm{diag}(+1^{p},\,-1^{\kappa})$",           C_PONT, 18)
-lbl(ax, 9.35, 5.16, r"Learnable: $\log\sigma$",                            C_PONT, 17)
-lbl(ax, 9.35, 4.68, r"(RFF bandwidth)",                                    C_PONT, 16)
+box(ax, 8.95, 4.09, 2.6, 3.91, C_PONT, alpha=0.20, radius=0.15)
+lbl(ax, 10.25, 7.67, "Pontryagin space",                                  C_PONT, 20, "bold")
+lbl(ax, 10.25, 7.21, r"$\mathbf{z}=[\boldsymbol{\varphi}_+\!\parallel\!\boldsymbol{\varphi}_-]$", C_PONT, 18)
+lbl(ax, 10.25, 6.72, r"$\mathbf{z}\in\Pi_\kappa=\mathbb{R}^{p+\kappa}$",     C_PONT, 18)
+lbl(ax, 10.25, 6.23, r"$\langle\mathbf{u},\mathbf{v}\rangle_J=\mathbf{u}^\top J\mathbf{v}$", C_PONT, 18)
+lbl(ax, 10.25, 5.74, r"$J=\mathrm{diag}(+1^{p},\,-1^{\kappa})$",           C_PONT, 18)
+lbl(ax, 10.25, 5.16, r"Learnable: $\log\sigma$",                            C_PONT, 17)
+lbl(ax, 10.25, 4.68, r"(RFF bandwidth)",                                    C_PONT, 16)
 
 # RFF → Pont  and  SRF → Pont
-arr(ax, 7.95, 8.00, 8.2, 7.3)
-arr(ax, 7.95, 4.52, 8.2, 5.05)
+arr(ax, 8.65, 8.00, 8.95, 7.3)
+arr(ax, 8.65, 4.52, 8.95, 5.05)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. J-HYPERPLANE   (x=10.8, y=4.09, w=3.15, h=3.91)  centre-y=6.05
 # ══════════════════════════════════════════════════════════════════════════════
-box(ax, 10.8, 4.09, 3.15, 3.91, C_JHEAD, alpha=0.15, radius=0.2)
-lbl(ax, 12.37, 7.67, "J-Hyperplane Classifier",                         C_JHEAD, 20, "bold")
-lbl(ax, 12.37, 7.19, r"$\zeta_y(\mathbf{z})=\langle\mathbf{W}_y,\mathbf{z}\rangle_J+b_y$", C_JHEAD, 18)
-lbl(ax, 12.37, 6.67, r"$= E_+^y - E_-^y$",                             C_JHEAD, 20, "bold")
-lbl(ax, 12.37, 6.17, r"$E_+^y=\langle\mathbf{w}_{+,y},\boldsymbol{\varphi}_+\rangle$",     C_JHEAD, 18)
-lbl(ax, 12.37, 5.68, r"$E_-^y=\langle\mathbf{w}_{-,y},\boldsymbol{\varphi}_-\rangle$",     C_JHEAD, 18)
-lbl(ax, 12.37, 5.16, r"$\hat{y}=\arg\max_y\;\zeta_y(\mathbf{z})$",     C_JHEAD, 18)
-lbl(ax, 12.37, 4.62, r"$\mathbf{W}_y\in\mathbb{R}^{p+\kappa}$ (learnable)", C_JHEAD, 16)
+box(ax, 12.1, 4.09, 3.6, 3.91, C_JHEAD, alpha=0.15, radius=0.2)
+lbl(ax, 13.9, 7.67, "J-Hyperplane Classifier",                         C_JHEAD, 20, "bold")
+lbl(ax, 13.9, 7.19, r"$\zeta_y(\mathbf{z})=\langle\mathbf{W}_y,\mathbf{z}\rangle_J+b_y$", C_JHEAD, 18)
+lbl(ax, 13.9, 6.67, r"$= E_+^y - E_-^y$",                             C_JHEAD, 20, "bold")
+lbl(ax, 13.9, 6.17, r"$E_+^y=\langle\mathbf{w}_{+,y},\boldsymbol{\varphi}_+\rangle$",     C_JHEAD, 18)
+lbl(ax, 13.9, 5.68, r"$E_-^y=\langle\mathbf{w}_{-,y},\boldsymbol{\varphi}_-\rangle$",     C_JHEAD, 18)
+lbl(ax, 13.9, 5.16, r"$\hat{y}=\arg\max_y\;\zeta_y(\mathbf{z})$",     C_JHEAD, 18)
+lbl(ax, 13.9, 4.62, r"$\mathbf{W}_y\in\mathbb{R}^{p+\kappa}$ (learnable)", C_JHEAD, 16)
 
 # Pont → J-head  (Pont right edge = 10.5, centre-y = 6.05)
-arr(ax, 10.5, 6.05, 10.8, 6.05)
+arr(ax, 11.55, 6.05, 12.1, 6.05)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5. APPLICATIONS strip   (y=0.38 to y=2.18, h=1.80)
 # ══════════════════════════════════════════════════════════════════════════════
-ax.plot([0.2, 14.8], [2.33, 2.33], color="#bbbbbb", lw=1.5, ls="--", zorder=3)
-lbl(ax, 7.5, 2.47, "Applications of PRFE", "#333333", 20, "bold")
+ax.plot([0.2, 15.8], [2.33, 2.33], color="#bbbbbb", lw=1.5, ls="--", zorder=3)
+lbl(ax, 8.0, 2.55, "Applications of PRFE", "#333333", 20, "bold")
 
 apps = [
-    (2.5,   C_SEG, "Dense Segmentation",    "FCN / UNet backbone"),
-    (7.5,   C_CLS, "Image Classification",  "ConvNeXtV2 backbone"),
-    (12.5,  C_FSS, "Few-Shot Segmentation", "J-prototype matching"),
+    (2.7,   C_SEG, "Dense Segmentation",    "FCN / U-Net backbone"),
+    (8.0,   C_CLS, "Image Classification",  "ConvNeXtV2 backbone"),
+    (13.3,  C_FSS, "Few-Shot Segmentation", "J-prototype matching"),
 ]
 for xc, col, title, sub in apps:
-    box(ax, xc - 1.95, 0.38, 3.9, 1.80, col, alpha=0.15, radius=0.14)
+    box(ax, xc - 2.1, 0.38, 4.2, 1.80, col, alpha=0.15, radius=0.14)
     lbl(ax, xc, 1.52, title, col, 20, "bold")
     lbl(ax, xc, 0.90, sub,   col, 17)
 
-for xd in [5.45, 9.55]:
+for xd in [5.35, 10.65]:
     ax.plot([xd, xd], [0.38, 2.18], color="#cccccc", lw=1.5, ls="--", zorder=4)
 
 # ══════════════════════════════════════════════════════════════════════════════

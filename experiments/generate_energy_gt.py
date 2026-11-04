@@ -2,9 +2,9 @@
 with a green ground-truth contour overlaid on the original image panel.
 
 Outputs (written to report/figures/):
-  pontryagin_fcn_energy_ex1.pdf   ← DJI_45   FCN
+  pontryagin_fcn_energy_ex1.pdf   ← DJI_36   FCN
   pontryagin_fcn_energy_ex2.pdf   ← DJI_27   FCN
-  pontryagin_unet_energy_ex1.pdf  ← DJI_45   UNet
+  pontryagin_unet_energy_ex1.pdf  ← DJI_36   UNet
   pontryagin_unet_energy_ex2.pdf  ← DJI_27   UNet
 
 Each PDF is a 1×4 panel:
@@ -166,7 +166,7 @@ def save_figure(rgb, gt_mask, uncertainty, e_pos, e_neg, out_path, n_mc=N_MC):
     # Panel 2: positive energy
     im2 = axes[2].imshow(_norm01(e_pos), cmap="Blues", vmin=0, vmax=1)
     axes[2].set_xlabel(
-        r"Positive energy $\langle w_+, \varphi_+\rangle$" "\n(RFF — Euclidean)",
+        r"Positive energy $\langle w_+, \varphi_+\rangle$" "\n(RFF with Gaussian kernel, positive subspace)",
         fontsize=10,
     )
     plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
@@ -174,7 +174,7 @@ def save_figure(rgb, gt_mask, uncertainty, e_pos, e_neg, out_path, n_mc=N_MC):
     # Panel 3: negative energy
     im3 = axes[3].imshow(_norm01(e_neg), cmap="Reds", vmin=0, vmax=1)
     axes[3].set_xlabel(
-        r"Negative energy $\langle w_-, \varphi_-\rangle$" "\n(SRF — hyperbolic)",
+        r"Negative energy $\langle w_-, \varphi_-\rangle$" "\n(SRF with polynomial kernel, negative subspace)",
         fontsize=10,
     )
     plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)

@@ -325,7 +325,8 @@ def mc_uncertainty_fss(
     drop = nn.Dropout2d(p=p_drop).to(dev)
     drop.train()
 
-    is_pont = hasattr(model, "embed")
+    is_hyp  = hasattr(model, "delta")   # Hyperbolic (unique attribute)
+    is_pont = hasattr(model, "embed") and not is_hyp   # Pontryagin only
 
     with torch.no_grad():
         proto_fg, _ = model._prototypes(support_imgs, support_masks)
@@ -335,7 +336,13 @@ def mc_uncertainty_fss(
         for _ in range(n_passes):
             q_feat = drop(model.backbone(query_img))
 
-            if is_pont:
+            if is_hyp:
+                q_emb  = model.embed(q_feat)                      # (1, C, H, W)
+                q_pts  = q_emb.permute(0, 2, 3, 1)                # (1, H, W, C)
+                p_pts  = proto_fg[:, None, None, :]               # (1, 1, 1, C)
+                dist   = _poincare_dist(q_pts, p_pts, model.c, model.eps)
+                logits = model.alpha * (model.delta - dist)
+            elif is_pont:
                 q_emb  = model.embed(q_feat)
                 J      = model.J[None, :, None, None]
                 logits = (q_emb * proto_fg[:, :, None, None] * J).sum(dim=1)
